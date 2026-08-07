@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/constant"
@@ -11,8 +12,10 @@ import (
 )
 
 // AddCommunityRBACProjectNodes makes the project/node relationship explicit.
-// Existing projects are attached to local node 0 and existing remote resource
-// ownership rows seed the corresponding remote project-node attachment.
+// Existing concrete resource ownership seeds exactly the nodes on which a
+// project already exists. A legacy non-empty RootPath additionally proves local
+// node intent and is preserved as the local node-0 boundary. Empty remote-only
+// projects are never implicitly attached to the master during upgrade.
 //
 // Direct resource-scope bindings are removed deliberately: stable human names
 // are not immutable resource identities and could otherwise resurrect access
@@ -27,11 +30,16 @@ var AddCommunityRBACProjectNodes = &gormigrate.Migration{
 			return err
 		}
 
-		var projects []model.AccessProject
-		if err := tx.Find(&projects).Error; err != nil {
+		projects := make(map[uint]model.AccessProject)
+		var projectRows []model.AccessProject
+		if err := tx.Find(&projectRows).Error; err != nil {
 			return err
 		}
-		for _, project := range projects {
+		for _, project := range projectRows {
+			projects[project.ID] = project
+			if strings.TrimSpace(project.RootPath) == "" {
+				continue
+			}
 			item := model.AccessProjectNode{ProjectID: project.ID, NodeID: 0, RootPath: project.RootPath}
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_id"}, {Name: "node_id"}}, DoNothing: true}).Create(&item).Error; err != nil {
 				return err
@@ -49,8 +57,15 @@ var AddCommunityRBACProjectNodes = &gormigrate.Migration{
 			return err
 		}
 		for _, pair := range pairs {
-			item := model.AccessProjectNode{ProjectID: pair.ProjectID, NodeID: pair.NodeID}
-			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "project_id"}, {Name: "node_id"}}, DoNothing: true}).Create(&item).Error; err != nil {
+			rootPath := ""
+			if pair.NodeID == 0 {
+				rootPath = projects[pair.ProjectID].RootPath
+			}
+			item := model.AccessProjectNode{ProjectID: pair.ProjectID, NodeID: pair.NodeID, RootPath: rootPath}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "project_id"}, {Name: "node_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"root_path"}),
+			}).Create(&item).Error; err != nil {
 				return err
 			}
 		}

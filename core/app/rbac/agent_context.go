@@ -74,7 +74,7 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 			}
 			allowed, err := evaluator.Can(userID, "website.create", ResourceContext{NodeID: nodeID, ProjectID: projectID, Type: "project", ID: strconv.FormatUint(uint64(projectID), 10)})
 			if err != nil || !allowed {
-				deny(c, http.StatusPreconditionFailed, "Website creation is not allowed in this project")
+				deny(c, http.StatusPreconditionFailed, "Website creation is not allowed in this project on the selected node")
 				return
 			}
 			var project model.AccessProject
@@ -87,7 +87,10 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 				return
 			}
 			setAgentRBACHeaders(c, userID, "website.create", "website", ResourceFilter{IDs: []string{resourceID}})
-			setProjectTransportHeaders(c, project)
+			if err := setProjectTransportHeaders(c, project, nodeID); err != nil {
+				deny(c, http.StatusPreconditionFailed, err.Error())
+				return
+			}
 			ContinueCreationWithOwnership(c, projectID, nodeID, "website", resourceID)
 			return
 		}

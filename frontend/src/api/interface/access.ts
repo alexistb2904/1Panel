@@ -4,6 +4,7 @@ export namespace AccessControl {
         scopeType: 'global' | 'node' | 'project' | 'resource';
         scopeId: string;
         resourceType?: string;
+        nodeId?: number;
     }
 
     export interface Binding extends BindingInput {

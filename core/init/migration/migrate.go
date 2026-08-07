@@ -11,6 +11,7 @@ func Init() {
 	m := gormigrate.New(global.DB, gormigrate.DefaultOptions, []*gormigrate.Migration{
 		migrations.AddTable,
 		migrations.InitSetting,
+		migrations.AddCommunityRBAC,
 		migrations.InitOneDrive,
 		migrations.InitHost,
 		migrations.InitTerminalSetting,

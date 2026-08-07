@@ -10,33 +10,42 @@ import (
 type AccessRouter struct{}
 
 func (s *AccessRouter) InitRouter(Router *gin.RouterGroup) {
-	base := Router.Group("access").Use(middleware.SessionAuth()).Use(middleware.PasswordExpired())
+	base := Router.Group("access")
+	base.Use(middleware.SessionAuth(), middleware.PasswordExpired())
 	api := v2.ApiGroupApp.BaseApi
 
-	userRead := base.Group("users").Use(rbac.RequireGlobal("access.user.view"))
+	userRead := base.Group("users")
+	userRead.Use(rbac.RequireGlobal("access.user.view"))
 	userRead.GET("", api.ListAccessUsers)
 
-	userManage := base.Group("users").Use(rbac.RequireGlobal("access.user.manage"))
+	userManage := base.Group("users")
+	userManage.Use(rbac.RequireGlobal("access.user.manage"))
 	userManage.POST("", api.CreateAccessUser)
 	userManage.POST("/update", api.UpdateAccessUser)
 	userManage.POST("/status", api.UpdateAccessUserStatus)
 	userManage.POST("/password", api.ResetAccessUserPassword)
 
-	bindingManage := base.Group("users").Use(rbac.RequireGlobal("access.user.manage"), rbac.RequireGlobal("access.role.manage"))
+	bindingManage := base.Group("users")
+	bindingManage.Use(rbac.RequireGlobal("access.user.manage"), rbac.RequireGlobal("access.role.manage"))
 	bindingManage.POST("/bindings", api.ReplaceAccessUserBindings)
 
-	roleRead := base.Group("roles").Use(rbac.RequireGlobal("access.role.view"))
+	roleRead := base.Group("roles")
+	roleRead.Use(rbac.RequireGlobal("access.role.view"))
 	roleRead.GET("", api.ListAccessRoles)
 
-	projectRead := base.Group("projects").Use(rbac.RequireGlobal("project.view"))
+	projectRead := base.Group("projects")
+	projectRead.Use(rbac.RequireGlobal("project.view"))
 	projectRead.GET("", api.ListAccessProjects)
 
-	projectCreate := base.Group("projects").Use(rbac.RequireGlobal("project.create"))
+	projectCreate := base.Group("projects")
+	projectCreate.Use(rbac.RequireGlobal("project.create"))
 	projectCreate.POST("", api.CreateAccessProject)
 
-	projectUpdate := base.Group("projects").Use(rbac.RequireGlobal("project.update"))
+	projectUpdate := base.Group("projects")
+	projectUpdate.Use(rbac.RequireGlobal("project.update"))
 	projectUpdate.POST("/update", api.UpdateAccessProject)
 
-	projectResources := base.Group("projects").Use(rbac.RequireGlobal("project.resource.manage"))
+	projectResources := base.Group("projects")
+	projectResources.Use(rbac.RequireGlobal("project.resource.manage"))
 	projectResources.POST("/resources", api.ReplaceAccessProjectResources)
 }

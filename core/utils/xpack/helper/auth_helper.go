@@ -35,6 +35,7 @@ func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 		rbac.ScopedApplicationAuthorizationMiddleware(),
 		rbac.DockerAuthorizationMiddlewareV3(),
 		rbac.FileAuthorizationMiddleware(),
+		rbac.FinalDefaultDenyMiddleware(),
 	}
 }
 

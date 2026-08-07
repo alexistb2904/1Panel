@@ -44,6 +44,7 @@ jobs:
           ./utils/xpack/helper
           ./router
           ./middleware
+          ./init/router
           ./init/migration/...
 
   agent:
@@ -116,7 +117,7 @@ jobs:
           test -f cmd/server/web/index.html || printf '<!doctype html><html></html>\n' > cmd/server/web/index.html
           printf 'placeholder\n' > cmd/server/web/assets/.rbac-ci
           printf '{}\n' > cmd/server/web/static/rbac-ci.json
-          go test ./app/rbac ./app/service ./app/api/v2 ./router ./middleware ./init/migration/...
+          go test ./app/rbac ./app/service ./app/api/v2 ./router ./middleware ./init/router ./init/migration/...
       - uses: actions/setup-go@v5
         with:
           go-version-file: agent/go.mod

@@ -14,6 +14,7 @@ func Init() {
 		migrations.AddCommunityRBAC,
 		migrations.AddCommunityRBACUserMFAFields,
 		migrations.AddCommunityRBACProjectRoot,
+		migrations.AddCommunityRBACSecurityExtensions,
 		migrations.InitOneDrive,
 		migrations.InitHost,
 		migrations.InitTerminalSetting,

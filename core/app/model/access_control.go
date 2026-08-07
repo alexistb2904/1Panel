@@ -65,7 +65,8 @@ type AccessRolePermission struct {
 func (AccessRolePermission) TableName() string { return "rbac_role_permissions" }
 
 // AccessRoleBinding assigns a role to an identity at one scope. Global
-// bindings use ScopeID="*". Resource bindings additionally set ResourceType.
+// bindings use ScopeID="*". Resource bindings additionally set ResourceType
+// and NodeID so the same stable resource key on two nodes never shares access.
 type AccessRoleBinding struct {
 	BaseModel
 	UserID       uint   `gorm:"not null;index;uniqueIndex:idx_rbac_binding,priority:1" json:"userId"`
@@ -73,6 +74,7 @@ type AccessRoleBinding struct {
 	ScopeType    string `gorm:"size:32;not null;index;uniqueIndex:idx_rbac_binding,priority:3" json:"scopeType"`
 	ScopeID      string `gorm:"size:128;not null;uniqueIndex:idx_rbac_binding,priority:4" json:"scopeId"`
 	ResourceType string `gorm:"size:64;not null;default:'';uniqueIndex:idx_rbac_binding,priority:5" json:"resourceType"`
+	NodeID       uint   `gorm:"not null;default:0;index;uniqueIndex:idx_rbac_binding,priority:6" json:"nodeId"`
 }
 
 func (AccessRoleBinding) TableName() string { return "rbac_role_bindings" }
@@ -91,12 +93,15 @@ type AccessProject struct {
 
 func (AccessProject) TableName() string { return "rbac_projects" }
 
+// A concrete resource has exactly one project owner on a given node. ProjectID
+// is intentionally not part of the unique key: duplicate ownership across
+// projects must fail at the database boundary as well as in service code.
 type AccessProjectResource struct {
 	BaseModel
-	ProjectID    uint   `gorm:"not null;index;uniqueIndex:idx_rbac_project_resource,priority:1" json:"projectId"`
-	NodeID       uint   `gorm:"not null;default:0;index;uniqueIndex:idx_rbac_project_resource,priority:2" json:"nodeId"`
-	ResourceType string `gorm:"size:64;not null;index;uniqueIndex:idx_rbac_project_resource,priority:3" json:"resourceType"`
-	ResourceID   string `gorm:"size:128;not null;uniqueIndex:idx_rbac_project_resource,priority:4" json:"resourceId"`
+	ProjectID    uint   `gorm:"not null;index" json:"projectId"`
+	NodeID       uint   `gorm:"not null;default:0;index;uniqueIndex:idx_rbac_project_resource,priority:1" json:"nodeId"`
+	ResourceType string `gorm:"size:64;not null;index;uniqueIndex:idx_rbac_project_resource,priority:2" json:"resourceType"`
+	ResourceID   string `gorm:"size:128;not null;uniqueIndex:idx_rbac_project_resource,priority:3" json:"resourceId"`
 }
 
 func (AccessProjectResource) TableName() string { return "rbac_project_resources" }
@@ -133,11 +138,11 @@ func (AccessServiceCredential) TableName() string { return "rbac_service_credent
 // layer. Secret values and raw request bodies must never be written here.
 type AccessAuditEvent struct {
 	BaseModel
-	SubjectType string `gorm:"size:32;not null;index" json:"subjectType"`
-	SubjectID   uint   `gorm:"not null;index" json:"subjectId"`
-	SubjectName string `gorm:"size:255;index" json:"subjectName"`
-	Action      string `gorm:"size:128;not null;index" json:"action"`
-	Decision    string `gorm:"size:16;not null;index" json:"decision"`
+	SubjectType  string `gorm:"size:32;not null;index" json:"subjectType"`
+	SubjectID    uint   `gorm:"not null;index" json:"subjectId"`
+	SubjectName  string `gorm:"size:255;index" json:"subjectName"`
+	Action       string `gorm:"size:128;not null;index" json:"action"`
+	Decision     string `gorm:"size:16;not null;index" json:"decision"`
 	ResourceType string `gorm:"size:64;index" json:"resourceType"`
 	ResourceID   string `gorm:"size:255;index" json:"resourceId"`
 	NodeID       uint   `gorm:"not null;default:0;index" json:"nodeId"`

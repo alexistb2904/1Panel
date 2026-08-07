@@ -51,8 +51,6 @@ func WebsiteRBAC() gin.HandlerFunc {
 			resources = nil
 		}
 
-		// Creation is authorized against the deterministic website:<alias> key
-		// reserved by Core before the Website row exists.
 		if c.Request.Method == http.MethodPost && strings.TrimSuffix(c.Request.URL.Path, "/") == "/api/v2/websites" {
 			body, payload, err := readRBACJSONBody(c)
 			if err != nil {
@@ -63,7 +61,7 @@ func WebsiteRBAC() gin.HandlerFunc {
 				c.Request.Body = io.NopCloser(bytes.NewReader(body))
 			}
 			key := "website:" + strings.TrimSpace(valueString(payload["alias"]))
-			if !containsString(resources, key) {
+			if !containsWebsiteResource(resources, key) {
 				denyWebsiteAccess(c, "Website creation target is outside the assigned project")
 				return
 			}
@@ -288,7 +286,7 @@ func parseUint(raw string) uint {
 	return uint(value)
 }
 
-func containsString(values []string, target string) bool {
+func containsWebsiteResource(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
 			return true

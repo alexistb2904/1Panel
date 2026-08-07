@@ -309,7 +309,7 @@ const filteredUsers = computed(() => {
 const serviceAccountRoles = computed(() => roles.value.filter((role) => role.key !== 'administrator'));
 const resourceTypes = ['website', 'database', 'runtime', 'container', 'compose'];
 
-const emptyBinding = (): AccessControl.BindingInput => ({ roleKey: 'developer', scopeType: 'project', scopeId: projects.value[0]?.id ? String(projects.value[0].id) : '' });
+const emptyBinding = (): AccessControl.BindingInput => ({ roleKey: 'developer', scopeType: 'project', scopeId: projects.value[0]?.id ? String(projects.value[0].id) : '', nodeId: 0 });
 
 const BindingEditor = defineComponent({
     name: 'BindingEditor',
@@ -322,6 +322,7 @@ const BindingEditor = defineComponent({
             if (key === 'scopeType') {
                 const scope = String(value);
                 next[index].resourceType = '';
+                next[index].nodeId = 0;
                 if (scope === 'global') next[index].scopeId = '*';
                 else if (scope === 'node') next[index].scopeId = '0';
                 else if (scope === 'project') next[index].scopeId = String((props.projects as AccessControl.Project[])[0]?.id || '');
@@ -340,7 +341,11 @@ const BindingEditor = defineComponent({
                     : binding.scopeType === 'node'
                       ? h(ElSelect, { modelValue: binding.scopeId, 'onUpdate:modelValue': (v: string) => update(index, 'scopeId', String(v)), placeholder: 'Nœud' }, () => [h(ElOption, { label: 'Local / master', value: '0' }), ...(props.nodes as AccessControl.Node[]).map((node) => h(ElOption, { label: node.name, value: String(node.id) }))])
                       : binding.scopeType === 'resource'
-                        ? h('div', { class: 'resource-scope-fields' }, [h(ElSelect, { modelValue: binding.resourceType, 'onUpdate:modelValue': (v: string) => update(index, 'resourceType', v), placeholder: 'Type' }, () => resourceTypes.map((type) => h(ElOption, { label: type, value: type }))), h(ElInput, { modelValue: binding.scopeId, 'onUpdate:modelValue': (v: string) => update(index, 'scopeId', v), placeholder: 'Resource ID' })])
+                        ? h('div', { class: 'resource-scope-fields' }, [
+                            h(ElSelect, { modelValue: binding.resourceType, 'onUpdate:modelValue': (v: string) => update(index, 'resourceType', v), placeholder: 'Type' }, () => resourceTypes.map((type) => h(ElOption, { label: type, value: type }))),
+                            h(ElSelect, { modelValue: binding.nodeId ?? 0, 'onUpdate:modelValue': (v: number) => update(index, 'nodeId', Number(v)), placeholder: 'Nœud' }, () => [h(ElOption, { label: 'Local / master', value: 0 }), ...(props.nodes as AccessControl.Node[]).map((node) => h(ElOption, { label: node.name, value: node.id }))]),
+                            h(ElInput, { modelValue: binding.scopeId, 'onUpdate:modelValue': (v: string) => update(index, 'scopeId', v), placeholder: 'Resource ID' }),
+                        ])
                         : h(ElInput, { modelValue: '*', disabled: true }),
                 h(ElButton, { circle: true, plain: true, type: 'danger', icon: Delete, disabled: (props.modelValue as unknown[]).length <= 1, onClick: () => remove(index) }),
             ])),
@@ -386,7 +391,7 @@ const refreshCurrentTab = async () => {
 const openCreateUser = () => { Object.assign(userForm, { username: '', displayName: '', email: '', password: '', requireMFA: true, bindings: [emptyBinding()] }); Object.assign(userDialog, { open: true, mode: 'create', id: 0 }); };
 const openEditUser = (user: AccessControl.User) => { Object.assign(userForm, { username: user.username, displayName: user.displayName, email: user.email, password: '', requireMFA: user.requireMFA, bindings: [] }); Object.assign(userDialog, { open: true, mode: 'edit', id: user.id }); };
 const saveUser = async () => { if (userDialog.mode === 'create') { await createAccessUser(userForm); } else { await updateAccessUser({ id: userDialog.id, displayName: userForm.displayName, email: userForm.email, requireMFA: userForm.requireMFA }); } userDialog.open = false; ElMessage.success('Utilisateur enregistré'); await loadUsers(); };
-const openBindings = (user: AccessControl.User) => { bindingDialog.userID = user.id; bindingDialog.bindings = user.bindings.map(({ roleKey, scopeType, scopeId, resourceType }) => ({ roleKey, scopeType, scopeId, resourceType })); bindingDialog.open = true; };
+const openBindings = (user: AccessControl.User) => { bindingDialog.userID = user.id; bindingDialog.bindings = user.bindings.map(({ roleKey, scopeType, scopeId, resourceType, nodeId }) => ({ roleKey, scopeType, scopeId, resourceType, nodeId: nodeId ?? 0 })); bindingDialog.open = true; };
 const saveBindings = async () => { await replaceAccessUserBindings({ id: bindingDialog.userID, bindings: bindingDialog.bindings }); bindingDialog.open = false; ElMessage.success('Accès mis à jour'); await loadUsers(); };
 const toggleUser = async (user: AccessControl.User) => { await updateAccessUserStatus({ id: user.id, status: user.status === 'active' ? 'disabled' : 'active' }); await loadUsers(); };
 const resetPassword = async (user: AccessControl.User) => { const result = await ElMessageBox.prompt(`Nouveau mot de passe pour ${user.username}`, 'Réinitialiser le mot de passe', { inputType: 'password', inputPattern: /^.{12,}$/, inputErrorMessage: '12 caractères minimum' }); await resetAccessUserPassword({ id: user.id, password: result.value }); ElMessage.success('Mot de passe réinitialisé'); };
@@ -401,7 +406,7 @@ const openRootPath = (project: AccessControl.Project) => { rootDialog.projectID 
 const saveRootPath = async () => { await updateAccessProjectRoot({ id: rootDialog.projectID, rootPath: rootDialog.rootPath }); rootDialog.open = false; ElMessage.success('Frontière filesystem mise à jour'); await loadProjects(); };
 
 const openCreateServiceAccount = () => { Object.assign(serviceForm, { name: '', ipWhiteList: '', status: 'active', bindings: [emptyBinding()] }); Object.assign(serviceDialog, { open: true, mode: 'create', id: 0 }); };
-const openEditServiceAccount = (account: AccessControl.ServiceAccount) => { Object.assign(serviceForm, { name: account.name, ipWhiteList: account.ipWhiteList, status: account.status, bindings: account.bindings.map(({ roleKey, scopeType, scopeId, resourceType }) => ({ roleKey, scopeType, scopeId, resourceType })) }); Object.assign(serviceDialog, { open: true, mode: 'edit', id: account.id }); };
+const openEditServiceAccount = (account: AccessControl.ServiceAccount) => { Object.assign(serviceForm, { name: account.name, ipWhiteList: account.ipWhiteList, status: account.status, bindings: account.bindings.map(({ roleKey, scopeType, scopeId, resourceType, nodeId }) => ({ roleKey, scopeType, scopeId, resourceType, nodeId: nodeId ?? 0 })) }); Object.assign(serviceDialog, { open: true, mode: 'edit', id: account.id }); };
 const saveServiceAccount = async () => { if (serviceDialog.mode === 'create') { const res = await createServiceAccount({ name: serviceForm.name, ipWhiteList: serviceForm.ipWhiteList, bindings: serviceForm.bindings }); showToken(res.data?.token || ''); } else { await updateServiceAccount({ id: serviceDialog.id, name: serviceForm.name, ipWhiteList: serviceForm.ipWhiteList, status: serviceForm.status, bindings: serviceForm.bindings }); } serviceDialog.open = false; ElMessage.success('Compte de service enregistré'); await loadServiceAccounts(); };
 const rotateToken = async (account: AccessControl.ServiceAccount) => { await ElMessageBox.confirm('L’ancien token cessera immédiatement de fonctionner.', 'Rotation du token', { type: 'warning' }); const res = await rotateServiceAccount(account.id); showToken(res.data?.token || ''); await loadServiceAccounts(); };
 const showToken = (token: string) => { tokenDialog.token = token; tokenDialog.open = true; };
@@ -412,7 +417,7 @@ const openEditNode = (node: AccessControl.Node) => { Object.assign(nodeForm, { n
 const saveNode = async () => { if (nodeDialog.mode === 'create') await createAccessNode({ name: nodeForm.name, externalKey: nodeForm.externalKey }); else await updateAccessNode({ id: nodeDialog.id, name: nodeForm.name, externalKey: nodeForm.externalKey, status: nodeForm.status }); nodeDialog.open = false; ElMessage.success('Nœud enregistré'); await loadNodes(); };
 const showRole = (role: AccessControl.Role) => { roleDialog.role = role; roleDialog.open = true; };
 
-const bindingLabel = (binding: Pick<AccessControl.Binding, 'scopeType' | 'scopeId' | 'resourceType'>) => binding.scopeType === 'global' ? 'global' : binding.scopeType === 'project' ? `project #${binding.scopeId}` : binding.scopeType === 'node' ? `node #${binding.scopeId}` : `${binding.resourceType}:${binding.scopeId}`;
+const bindingLabel = (binding: Pick<AccessControl.Binding, 'scopeType' | 'scopeId' | 'resourceType' | 'nodeId'>) => binding.scopeType === 'global' ? 'global' : binding.scopeType === 'project' ? `project #${binding.scopeId}` : binding.scopeType === 'node' ? `node #${binding.scopeId}` : `${binding.resourceType}:${binding.scopeId} @ node #${binding.nodeId ?? 0}`;
 const riskTag = (risk: string): 'success' | 'warning' | 'danger' | 'info' => risk === 'critical' || risk === 'high' ? 'danger' : risk === 'medium' ? 'warning' : risk === 'low' ? 'success' : 'info';
 const resourceKey = (resource: AccessControl.ProjectResource) => `${resource.nodeId}:${resource.resourceType}:${resource.resourceId}`;
 const formatDate = (value?: string) => value ? new Date(value).toLocaleString() : '—';
@@ -451,13 +456,14 @@ onMounted(async () => {
 .dialog-form { margin-top: 18px; }
 .token-input { margin-top: 18px; }
 .binding-editor { display: flex; flex-direction: column; gap: 10px; }
-:deep(.binding-row) { display: grid; grid-template-columns: 1.1fr 1fr 2fr auto; gap: 8px; align-items: center; }
-:deep(.resource-scope-fields) { display: grid; grid-template-columns: 130px 1fr; gap: 8px; }
+:deep(.binding-row) { display: grid; grid-template-columns: 1.1fr 1fr 2.6fr auto; gap: 8px; align-items: center; }
+:deep(.resource-scope-fields) { display: grid; grid-template-columns: 130px 160px 1fr; gap: 8px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 @media (max-width: 900px) {
     .ac-page { padding: 12px; }
     .ac-header, .toolbar { align-items: stretch; flex-direction: column; }
     .search, .small-filter { width: 100%; max-width: none; }
     :deep(.binding-row) { grid-template-columns: 1fr; padding: 10px; border: 1px solid var(--el-border-color-lighter); border-radius: 8px; }
+    :deep(.resource-scope-fields) { grid-template-columns: 1fr; }
 }
 </style>

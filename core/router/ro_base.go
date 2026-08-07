@@ -2,6 +2,7 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/core/app/api/v2"
+	"github.com/1Panel-dev/1Panel/core/app/rbac"
 	"github.com/1Panel-dev/1Panel/core/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +14,10 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 	authRouter := Router.Group("auth").
 		Use(middleware.SessionAuth()).
 		Use(middleware.PasswordExpired())
+	adminAuthRouter := Router.Group("auth").
+		Use(middleware.SessionAuth()).
+		Use(middleware.PasswordExpired()).
+		Use(rbac.RequireGlobal("settings.manage"))
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		baseRouter.GET("/captcha", baseApi.Captcha)
@@ -28,13 +33,13 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 		authRouter.POST("/mfa/bind", baseApi.MFABind)
 		authRouter.POST("/mfa/close", baseApi.MFAClose)
 
-		authRouter.POST("/passkey/register/begin", baseApi.PasskeyRegisterBegin)
-		authRouter.POST("/passkey/register/finish", baseApi.PasskeyRegisterFinish)
-		authRouter.GET("/passkey/list", baseApi.PasskeyList)
-		authRouter.POST("/passkey/del", baseApi.PasskeyDelete)
+		adminAuthRouter.POST("/passkey/register/begin", baseApi.PasskeyRegisterBegin)
+		adminAuthRouter.POST("/passkey/register/finish", baseApi.PasskeyRegisterFinish)
+		adminAuthRouter.GET("/passkey/list", baseApi.PasskeyList)
+		adminAuthRouter.POST("/passkey/del", baseApi.PasskeyDelete)
 
-		authRouter.POST("/api/generate", baseApi.GenerateApiKey)
-		authRouter.POST("/api/update", baseApi.UpdateApiConfig)
+		adminAuthRouter.POST("/api/generate", baseApi.GenerateApiKey)
+		adminAuthRouter.POST("/api/update", baseApi.UpdateApiConfig)
 
 		authRouter.GET("/current", baseApi.GetCurrentUser)
 		authRouter.POST("/current/update", baseApi.UpdateCurrentUser)

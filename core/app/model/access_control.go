@@ -26,6 +26,7 @@ type AccessUser struct {
 	RequireMFA        bool       `gorm:"not null;default:false" json:"requireMFA"`
 	MFAEnabled        bool       `gorm:"not null;default:false" json:"mfaEnabled"`
 	MFASecret         string     `gorm:"type:text" json:"-"`
+	MFAInterval       int        `gorm:"not null;default:30" json:"mfaInterval"`
 	LastLoginAt       *time.Time `json:"lastLoginAt"`
 	PasswordChangedAt *time.Time `json:"passwordChangedAt"`
 }

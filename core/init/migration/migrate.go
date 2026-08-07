@@ -12,6 +12,7 @@ func Init() {
 		migrations.AddTable,
 		migrations.InitSetting,
 		migrations.AddCommunityRBAC,
+		migrations.AddCommunityRBACUserMFAFields,
 		migrations.InitOneDrive,
 		migrations.InitHost,
 		migrations.InitTerminalSetting,

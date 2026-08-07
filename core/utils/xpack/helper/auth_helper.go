@@ -64,37 +64,37 @@ func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 	return []gin.HandlerFunc{rbac.IdentityMiddleware()}
 }
 
-func (a *authHelper) LoadMFA(_ *gin.Context, req baseDto.MfaRequest) (mfa.Otp, error) {
-	return auth.LoadMFA(req)
+func (a *authHelper) LoadMFA(c *gin.Context, req baseDto.MfaRequest) (mfa.Otp, error) {
+	return auth.LoadMFAForContext(c, req)
 }
-func (a *authHelper) MFABind(_ *gin.Context, req baseDto.MfaCredential) error {
-	return auth.MFABind(req)
+func (a *authHelper) MFABind(c *gin.Context, req baseDto.MfaCredential) error {
+	return auth.MFABindForContext(c, req)
 }
-func (a *authHelper) MFAClose(_ *gin.Context) error {
-	return auth.MFAClose()
+func (a *authHelper) MFAClose(c *gin.Context) error {
+	return auth.MFACloseForContext(c)
 }
 func (a *authHelper) GenerateApiKey(_ *gin.Context) (string, error) {
 	return auth.GenerateApiKey()
 }
-func (a *authHelper) UpdateApiConfig(c *gin.Context, req baseDto.ApiInterfaceConfig) error {
+func (a *authHelper) UpdateApiConfig(_ *gin.Context, req baseDto.ApiInterfaceConfig) error {
 	return auth.UpdateApiConfig(req)
 }
 
-func (a *authHelper) GetCurrentUserInfo(_ *gin.Context) (*baseDto.CurrentUserInfo, error) {
-	return auth.GetCurrentUserInfo()
+func (a *authHelper) GetCurrentUserInfo(c *gin.Context) (*baseDto.CurrentUserInfo, error) {
+	return auth.GetSafeCurrentUserInfo(c)
 }
-func (a *authHelper) ShouldCheckPasswordExpiration(_ *gin.Context) (bool, error) {
-	return true, nil
+func (a *authHelper) ShouldCheckPasswordExpiration(c *gin.Context) (bool, error) {
+	return auth.ShouldCheckPasswordExpiration(c)
 }
 func (a *authHelper) LoadPasswordExpirationTime(c *gin.Context) (string, error) {
-	return auth.LoadPasswordExpirationTime(c)
+	return auth.LoadPasswordExpirationTimeForContext(c)
 }
 func (a *authHelper) SyncPasswordExpirationTime(expirationDays string) error {
 	return auth.SyncPasswordExpirationTime(expirationDays)
 }
 func (a *authHelper) UpdateCurrentUserInfo(c *gin.Context, req baseDto.CurrentUserUpdate) error {
-	return auth.UpdateCurrentUserInfo(c, req)
+	return auth.UpdateCurrentUserInfoForContext(c, req)
 }
 func (a *authHelper) HandlePasswordExpired(c *gin.Context, old, new string) error {
-	return auth.HandlePasswordExpired(c, old, new)
+	return auth.HandlePasswordExpiredForContext(c, old, new)
 }

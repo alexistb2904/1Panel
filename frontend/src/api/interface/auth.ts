@@ -90,6 +90,7 @@ export namespace Login {
         name: string;
         mfaStatus: string;
         mfaInterval: number;
+        requireMFA?: boolean;
         role: string;
         permissions: string[];
         masterOnlyPermissions?: string[];

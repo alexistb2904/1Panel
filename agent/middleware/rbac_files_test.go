@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,10 +37,11 @@ func TestSecureCanonicalPathRejectsSymlinkEscape(t *testing.T) {
 }
 
 func TestDecodeRBACRootsSkipsSystemRoot(t *testing.T) {
-	encoded, err := encodeRootsForTest([]string{"/"})
+	data, err := json.Marshal([]string{"/"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	encoded := base64.RawURLEncoding.EncodeToString(data)
 	roots, err := decodeRBACRoots(encoded)
 	if err != nil {
 		t.Fatal(err)

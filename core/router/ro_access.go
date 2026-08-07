@@ -48,4 +48,12 @@ func (s *AccessRouter) InitRouter(Router *gin.RouterGroup) {
 	projectResources := base.Group("projects")
 	projectResources.Use(rbac.RequireGlobal("project.resource.manage"))
 	projectResources.POST("/resources", api.ReplaceAccessProjectResources)
+
+	projectSecurityRead := base.Group("projects")
+	projectSecurityRead.Use(rbac.RequireGlobal("settings.view"))
+	projectSecurityRead.GET("/security", api.ListAccessProjectSecurity)
+
+	projectSecurityManage := base.Group("projects")
+	projectSecurityManage.Use(rbac.RequireGlobal("settings.manage"))
+	projectSecurityManage.POST("/security/root", api.UpdateAccessProjectRoot)
 }

@@ -78,10 +78,15 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Type-check RBAC contracts and utilities
-        run: |
-          npx tsc --ignoreConfig --noEmit --skipLibCheck --target ES2022 --module ESNext --moduleResolution Bundler src/api/interface/auth.ts src/api/interface/access.ts src/utils/project-scope.ts
-      - name: Build frontend bundle
+      - name: Type-check standalone RBAC API contracts
+        run: >-
+          npx tsc --ignoreConfig --noEmit --skipLibCheck
+          --target ES2022
+          --module ESNext
+          --moduleResolution Bundler
+          src/api/interface/auth.ts
+          src/api/interface/access.ts
+      - name: Build frontend bundle including Access Control UI
         run: npm run build:dev
 
   upstream-rebase-compatibility:

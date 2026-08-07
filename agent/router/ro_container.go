@@ -2,13 +2,14 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/agent/app/api/v2"
+	"github.com/1Panel-dev/1Panel/agent/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 type ContainerRouter struct{}
 
 func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
-	baRouter := Router.Group("containers")
+	baRouter := Router.Group("containers").Use(middleware.DockerRBAC())
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		baRouter.GET("/stats/:id", baseApi.ContainerStats)

@@ -26,6 +26,32 @@ var forbiddenProjectRoots = map[string]struct{}{
 	"/var":  {},
 }
 
+func loadAccessProjectNodeInfos(db *gorm.DB, projectID uint, discloseRoots bool) ([]dto.AccessProjectNodeInfo, error) {
+	var boundaries []model.AccessProjectNode
+	if err := db.Where("project_id = ?", projectID).Order("node_id ASC").Find(&boundaries).Error; err != nil {
+		return nil, err
+	}
+	items := make([]dto.AccessProjectNodeInfo, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		item := dto.AccessProjectNodeInfo{NodeID: boundary.NodeID}
+		if boundary.NodeID == 0 {
+			item.Name = "Local / master"
+			item.ExternalKey = "local"
+		} else {
+			var node model.AccessNodeScope
+			if err := db.Select("id", "name", "external_key").First(&node, boundary.NodeID).Error; err == nil {
+				item.Name = node.Name
+				item.ExternalKey = node.ExternalKey
+			}
+		}
+		if discloseRoots {
+			item.RootPath = boundary.RootPath
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 func ListAccessProjectSecurity() ([]dto.AccessProjectSecurityInfo, error) {
 	var projects []model.AccessProject
 	if err := global.DB.Order("name ASC").Find(&projects).Error; err != nil {
@@ -33,19 +59,12 @@ func ListAccessProjectSecurity() ([]dto.AccessProjectSecurityInfo, error) {
 	}
 	result := make([]dto.AccessProjectSecurityInfo, 0, len(projects))
 	for _, project := range projects {
-		item := dto.AccessProjectSecurityInfo{
-			ID: project.ID, Name: project.Name, Slug: project.Slug,
-			Status: project.Status,
-		}
-		var nodes []model.AccessProjectNode
-		if err := global.DB.Where("project_id = ?", project.ID).Order("node_id ASC").Find(&nodes).Error; err != nil {
-			return nil, err
-		}
+		item := dto.AccessProjectSecurityInfo{ID: project.ID, Name: project.Name, Slug: project.Slug, Status: project.Status}
+		nodes, err := loadAccessProjectNodeInfos(global.DB, project.ID, true)
+		if err != nil { return nil, err }
+		item.Nodes = nodes
 		for _, node := range nodes {
-			item.Nodes = append(item.Nodes, dto.AccessProjectNodeInfo{NodeID: node.NodeID, RootPath: node.RootPath})
-			if node.NodeID == 0 {
-				item.RootPath = node.RootPath
-			}
+			if node.NodeID == 0 { item.RootPath = node.RootPath; break }
 		}
 		result = append(result, item)
 	}

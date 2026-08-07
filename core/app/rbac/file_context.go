@@ -122,9 +122,8 @@ func filePermissionForRequest(method, fullPath string) (string, bool) {
 		"/batch/check": true, "/chunkdownload": true, "/size": true, "/depth/size": true,
 	}
 	write := map[string]bool{
-		"": true, "/compress": true, "/save": true, "/upload": true,
-		"/chunkupload": true, "/rename": true, "/move": true,
-		"/remark": true, "/convert": true,
+		"": true, "/save": true, "/upload": true, "/chunkupload": true,
+		"/rename": true, "/move": true, "/remark": true,
 	}
 	remove := map[string]bool{"/del": true, "/batch/del": true}
 	if read[path] { return "website.files.read", true }

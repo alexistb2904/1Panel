@@ -56,7 +56,7 @@ jobs:
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
-      - name: Compile website RBAC integration
+      - name: Compile scoped resource integration
         run: go test ./middleware ./app/service ./router
 
   frontend-auth-interface:
@@ -74,7 +74,7 @@ jobs:
       - run: npm ci
       - name: Type-check the modified auth contract
         run: >-
-          npx tsc --noEmit --skipLibCheck
+          npx tsc --ignoreConfig --noEmit --skipLibCheck
           --target ES2022
           --module ESNext
           --moduleResolution Bundler

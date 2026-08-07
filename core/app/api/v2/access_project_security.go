@@ -1,8 +1,11 @@
 package v2
 
 import (
+	"strconv"
+
 	"github.com/1Panel-dev/1Panel/core/app/api/v2/helper"
 	"github.com/1Panel-dev/1Panel/core/app/dto"
+	"github.com/1Panel-dev/1Panel/core/app/rbac"
 	"github.com/1Panel-dev/1Panel/core/app/service"
 	"github.com/gin-gonic/gin"
 )
@@ -25,5 +28,6 @@ func (b *BaseApi) UpdateAccessProjectRoot(c *gin.Context) {
 		helper.BadRequest(c, err)
 		return
 	}
+	rbac.AuditMutation(c, "rbac.project.root_path.update", "project", strconv.FormatUint(uint64(req.ID), 10), map[string]any{"rootPath": req.RootPath})
 	helper.Success(c)
 }

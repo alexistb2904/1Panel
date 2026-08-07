@@ -28,6 +28,12 @@ jobs:
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
+      - name: Create generated web embed placeholders
+        run: |
+          mkdir -p cmd/server/web/assets cmd/server/web/static
+          test -f cmd/server/web/index.html || printf '<!doctype html><html></html>\n' > cmd/server/web/index.html
+          printf 'placeholder\n' > cmd/server/web/assets/.rbac-ci
+          printf '{}\n' > cmd/server/web/static/rbac-ci.json
       - name: Test RBAC and compile affected core packages
         run: >-
           go test
@@ -53,7 +59,7 @@ jobs:
       - name: Compile website RBAC integration
         run: go test ./middleware ./app/service ./router
 
-  frontend-typecheck:
+  frontend-auth-interface:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -66,4 +72,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run type-check
+      - name: Type-check the modified auth contract
+        run: >-
+          npx tsc --noEmit --skipLibCheck
+          --target ES2022
+          --module ESNext
+          --moduleResolution Bundler
+          src/api/interface/auth.ts

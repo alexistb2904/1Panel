@@ -64,6 +64,7 @@ jobs:
           ./app/service
           ./app/repo
           ./router
+          ./init/router
 
   frontend:
     runs-on: ubuntu-latest
@@ -122,4 +123,4 @@ jobs:
           cache: false
       - name: Compile Agent scoped policies after rebase
         working-directory: agent
-        run: go test ./middleware ./app/service ./app/repo ./router
+        run: go test ./middleware ./app/service ./app/repo ./router ./init/router

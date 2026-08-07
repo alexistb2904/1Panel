@@ -59,4 +59,25 @@ func (s *AccessRouter) InitRouter(Router *gin.RouterGroup) {
 	projectSecurityManage := base.Group("projects")
 	projectSecurityManage.Use(rbac.RequireGlobal("settings.manage"))
 	projectSecurityManage.POST("/security/root", api.UpdateAccessProjectRoot)
+
+	nodeRead := base.Group("nodes")
+	nodeRead.Use(rbac.RequireGlobal("node.view"))
+	nodeRead.GET("", api.ListAccessNodes)
+	nodeManage := base.Group("nodes")
+	nodeManage.Use(rbac.RequireGlobal("node.manage"))
+	nodeManage.POST("", api.CreateAccessNode)
+	nodeManage.POST("/update", api.UpdateAccessNode)
+
+	serviceRead := base.Group("service-accounts")
+	serviceRead.Use(rbac.RequireGlobal("access.user.view"))
+	serviceRead.GET("", api.ListAccessServiceAccounts)
+	serviceManage := base.Group("service-accounts")
+	serviceManage.Use(rbac.RequireGlobal("access.user.manage"), rbac.RequireGlobal("access.role.manage"))
+	serviceManage.POST("", api.CreateAccessServiceAccount)
+	serviceManage.POST("/update", api.UpdateAccessServiceAccount)
+	serviceManage.POST("/rotate", api.RotateAccessServiceAccount)
+
+	audit := base.Group("audit")
+	audit.Use(rbac.RequireGlobal("audit.view"))
+	audit.POST("/search", api.SearchAccessAudit)
 }

@@ -2,6 +2,7 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/agent/app/api/v2"
+	"github.com/1Panel-dev/1Panel/agent/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -9,7 +10,7 @@ type WebsiteRouter struct {
 }
 
 func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
-	websiteRouter := Router.Group("websites")
+	websiteRouter := Router.Group("websites").Use(middleware.WebsiteRBAC())
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{

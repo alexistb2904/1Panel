@@ -18,8 +18,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const internalAgentRequestHeader = "X-Panel-Internal-Request"
+
 func Proxy() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// This header is reserved for Core-created Unix-socket requests. Never
+		// forward a browser-provided value to Agent.
+		c.Request.Header.Del(internalAgentRequestHeader)
+
 		reqPath := c.Request.URL.Path
 		if !middleware.ShouldProxyToAgent(reqPath) {
 			c.Next()

@@ -18,6 +18,8 @@ import (
 	"github.com/1Panel-dev/1Panel/core/i18n"
 )
 
+const internalRequestHeader = "X-Panel-Internal-Request"
+
 func NewLocalClient(reqUrl, reqMethod string, body io.Reader, ctx *gin.Context) (interface{}, error) {
 	client := NewReusableClient()
 	defer client.CloseIdleConnections()
@@ -82,6 +84,10 @@ func (c *ReusableClient) Request(reqUrl, reqMethod string, body io.Reader, ctx *
 			}
 		}
 	}
+	// This request is created by trusted Core code and travels over the local
+	// Unix socket. Agent resource middleware uses this marker to distinguish
+	// internal orchestration from proxied browser traffic.
+	req.Header.Set(internalRequestHeader, "1")
 
 	resp, err := c.client.Do(req)
 	if err != nil {

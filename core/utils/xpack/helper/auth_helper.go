@@ -61,7 +61,10 @@ func (a *authHelper) CoreAPIAuthMiddleware() gin.HandlerFunc {
 }
 
 func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
-	return []gin.HandlerFunc{rbac.IdentityMiddleware()}
+	return []gin.HandlerFunc{
+		rbac.IdentityMiddleware(),
+		rbac.AgentResourceAuthorizationMiddleware(),
+	}
 }
 
 func (a *authHelper) LoadMFA(c *gin.Context, req baseDto.MfaRequest) (mfa.Otp, error) {

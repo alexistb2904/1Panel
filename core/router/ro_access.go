@@ -14,6 +14,9 @@ func (s *AccessRouter) InitRouter(Router *gin.RouterGroup) {
 	base.Use(middleware.SessionAuth(), middleware.PasswordExpired())
 	api := v2.ApiGroupApp.BaseApi
 
+	self := base.Group("me")
+	self.GET("/projects", api.ListMyAccessProjects)
+
 	userRead := base.Group("users")
 	userRead.Use(rbac.RequireGlobal("access.user.view"))
 	userRead.GET("", api.ListAccessUsers)

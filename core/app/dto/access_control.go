@@ -87,7 +87,6 @@ type AccessProjectCreate struct {
 	Name        string `json:"name" validate:"required,min=2,max=255"`
 	Slug        string `json:"slug" validate:"required,min=2,max=128"`
 	Description string `json:"description" validate:"max=1024"`
-	RootPath    string `json:"rootPath" validate:"omitempty,max=2048"`
 }
 
 type AccessProjectUpdate struct {
@@ -95,7 +94,6 @@ type AccessProjectUpdate struct {
 	Name        string `json:"name" validate:"required,min=2,max=255"`
 	Slug        string `json:"slug" validate:"required,min=2,max=128"`
 	Description string `json:"description" validate:"max=1024"`
-	RootPath    string `json:"rootPath" validate:"omitempty,max=2048"`
 	Status      string `json:"status" validate:"required,oneof=active archived"`
 }
 
@@ -115,7 +113,6 @@ type AccessProjectInfo struct {
 	Name        string                       `json:"name"`
 	Slug        string                       `json:"slug"`
 	Description string                       `json:"description"`
-	RootPath    string                       `json:"rootPath"`
 	Status      string                       `json:"status"`
 	CreatedAt   time.Time                    `json:"createdAt"`
 	Resources   []AccessProjectResourceInput `json:"resources"`

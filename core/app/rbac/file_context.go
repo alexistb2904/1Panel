@@ -12,10 +12,26 @@ import (
 
 const HeaderRBACAllowedRoots = "X-Panel-RBAC-Allowed-Roots"
 
+func isPublicFileShareRBACBypass(path string) bool {
+	switch path {
+	case "/api/v2/files/share/info", "/api/v2/files/share/check", "/api/v2/files/share/download":
+		return true
+	default:
+		return false
+	}
+}
+
 func FileAuthorizationMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Request.Header.Del(HeaderRBACAllowedRoots)
 		if !strings.HasPrefix(c.Request.URL.Path, "/api/v2/files") {
+			c.Next()
+			return
+		}
+		// These three routes are intentionally anonymous and are validated by the
+		// Agent's dedicated FileSharePublicAccess middleware. Do not require an
+		// RBAC identity here or public links become unusable.
+		if isPublicFileShareRBACBypass(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
@@ -107,7 +123,7 @@ func filePermissionForRequest(method, fullPath string) (string, bool) {
 	}
 	write := map[string]bool{
 		"": true, "/compress": true, "/save": true, "/upload": true,
-		"/chunkupload": true, "/rename": true, "/wget": true, "/move": true,
+		"/chunkupload": true, "/rename": true, "/move": true,
 		"/remark": true, "/convert": true,
 	}
 	remove := map[string]bool{"/del": true, "/batch/del": true}

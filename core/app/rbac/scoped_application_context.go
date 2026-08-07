@@ -86,7 +86,10 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 				return
 			}
 			setAgentRBACHeaders(c, userID, req.Permission, req.ResourceType, ResourceFilter{IDs: []string{req.ResourceID}})
-			setProjectTransportHeaders(c, project)
+			if err := setProjectTransportHeaders(c, project, nodeID); err != nil {
+				deny(c, http.StatusPreconditionFailed, err.Error())
+				return
+			}
 			ContinueCreationWithOwnership(c, project.ID, nodeID, req.ResourceType, req.ResourceID)
 			return
 		}
@@ -108,7 +111,10 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 				deny(c, http.StatusPreconditionFailed, "Resource is not writable in the selected project")
 				return
 			}
-			setProjectTransportHeaders(c, project)
+			if err := setProjectTransportHeaders(c, project, nodeID); err != nil {
+				deny(c, http.StatusPreconditionFailed, err.Error())
+				return
+			}
 		}
 		c.Next()
 	}
@@ -251,7 +257,7 @@ func authorizeProjectResourceCreation(evaluator *Evaluator, userID, nodeID uint,
 	}
 	allowed, err := evaluator.Can(userID, req.Permission, ResourceContext{NodeID: nodeID, ProjectID: req.ProjectID, Type: "project", ID: strconv.FormatUint(uint64(req.ProjectID), 10)})
 	if err != nil || !allowed {
-		return model.AccessProject{}, errors.New("resource creation is not allowed in this project")
+		return model.AccessProject{}, errors.New("resource creation is not allowed in this project on the selected node")
 	}
 	var project model.AccessProject
 	if err := global.DB.First(&project, req.ProjectID).Error; err != nil {
@@ -281,12 +287,26 @@ func projectForScopedResource(nodeID uint, resourceType, resourceID string, expl
 	return project, nil
 }
 
-func setProjectTransportHeaders(c *gin.Context, project model.AccessProject) {
+func projectNodeBoundary(projectID, nodeID uint) (model.AccessProjectNode, error) {
+	var boundary model.AccessProjectNode
+	if err := global.DB.Where("project_id = ? AND node_id = ?", projectID, nodeID).First(&boundary).Error; err != nil {
+		return model.AccessProjectNode{}, errors.New("project is not attached to the selected node")
+	}
+	return boundary, nil
+}
+
+func setProjectTransportHeaders(c *gin.Context, project model.AccessProject, nodeID uint) error {
+	boundary, err := projectNodeBoundary(project.ID, nodeID)
+	if err != nil {
+		return err
+	}
 	c.Request.Header.Set(HeaderRBACRestricted, "1")
 	c.Request.Header.Set(HeaderRBACProjectID, strconv.FormatUint(uint64(project.ID), 10))
-	if strings.TrimSpace(project.RootPath) != "" {
-		c.Request.Header.Set(HeaderRBACProjectRoot, project.RootPath)
+	c.Request.Header.Del(HeaderRBACProjectRoot)
+	if strings.TrimSpace(boundary.RootPath) != "" {
+		c.Request.Header.Set(HeaderRBACProjectRoot, boundary.RootPath)
 	}
+	return nil
 }
 
 func projectIDFromPayload(payload map[string]any) uint {

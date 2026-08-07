@@ -14,7 +14,7 @@ import (
 // staff receive project-scoped bindings only.
 func ListMyAccessProjects(userID uint) ([]dto.AccessProjectInfo, error) {
 	evaluator := rbac.NewEvaluator(global.DB)
-	globalAccess, err := evaluator.Can(userID, "project.view", rbac.ResourceContext{})
+	globalAccess, err := evaluator.CanGlobal(userID, "project.view")
 	if err != nil {
 		return nil, err
 	}

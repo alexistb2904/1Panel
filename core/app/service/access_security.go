@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/1Panel-dev/1Panel/core/app/dto"
 	"github.com/1Panel-dev/1Panel/core/app/model"
@@ -120,6 +118,7 @@ func (s *AccessService) UpdateServiceAccount(req dto.AccessServiceAccountUpdate)
 			if err := tx.Create(&binding).Error; err != nil {
 				return err
 			}
+		}
 		return nil
 	})
 }
@@ -174,7 +173,10 @@ func (s *AccessService) SearchAudit(req dto.AccessAuditSearch) (int64, []dto.Acc
 }
 
 func loadAccessBindings(userID uint) ([]dto.AccessBindingInfo, error) {
-	type row struct { ID, RoleID uint; RoleKey, RoleName, ScopeType, ScopeID, ResourceType string }
+	type row struct {
+		ID, RoleID                                        uint
+		RoleKey, RoleName, ScopeType, ScopeID, ResourceType string
+	}
 	var rows []row
 	if err := global.DB.Table("rbac_role_bindings AS b").Select("b.id, b.role_id, r.key AS role_key, r.name AS role_name, b.scope_type, b.scope_id, b.resource_type").Joins("JOIN rbac_roles r ON r.id = b.role_id").Where("b.user_id = ?", userID).Order("r.sort ASC").Scan(&rows).Error; err != nil {
 		return nil, err
@@ -213,6 +215,3 @@ func newServiceCredentialSecret() (string, string, string, error) {
 	sum := sha256.Sum256([]byte(secret))
 	return keyID, secret, hex.EncodeToString(sum[:]), nil
 }
-
-var _ = fmt.Sprintf
-var _ = time.Now

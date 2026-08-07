@@ -7,6 +7,7 @@ type AccessBindingInput struct {
 	ScopeType    string `json:"scopeType" validate:"required,oneof=global node project resource"`
 	ScopeID      string `json:"scopeId" validate:"required"`
 	ResourceType string `json:"resourceType"`
+	NodeID       uint   `json:"nodeId"`
 }
 
 type AccessUserCreate struct {
@@ -48,6 +49,7 @@ type AccessBindingInfo struct {
 	ScopeType    string `json:"scopeType"`
 	ScopeID      string `json:"scopeId"`
 	ResourceType string `json:"resourceType"`
+	NodeID       uint   `json:"nodeId"`
 }
 
 type AccessUserInfo struct {
@@ -87,6 +89,7 @@ type AccessProjectCreate struct {
 	Name        string `json:"name" validate:"required,min=2,max=255"`
 	Slug        string `json:"slug" validate:"required,min=2,max=128"`
 	Description string `json:"description" validate:"max=1024"`
+	RootPath    string `json:"rootPath" validate:"max=2048"`
 }
 
 type AccessProjectUpdate struct {
@@ -113,6 +116,7 @@ type AccessProjectInfo struct {
 	Name        string                       `json:"name"`
 	Slug        string                       `json:"slug"`
 	Description string                       `json:"description"`
+	RootPath    string                       `json:"rootPath"`
 	Status      string                       `json:"status"`
 	CreatedAt   time.Time                    `json:"createdAt"`
 	Resources   []AccessProjectResourceInput `json:"resources"`

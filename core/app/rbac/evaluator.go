@@ -54,6 +54,30 @@ func (e *Evaluator) Can(userID uint, permissionCode string, resource ResourceCon
 	return false, nil
 }
 
+// CanGlobal intentionally accepts only a global binding. A zero-valued
+// ResourceContext must never accidentally mean "local node" for APIs whose
+// semantics are platform-wide (Access Control, audit, settings, etc.).
+func (e *Evaluator) CanGlobal(userID uint, permissionCode string) (bool, error) {
+	active, err := e.isActiveUser(userID)
+	if err != nil || !active {
+		return false, err
+	}
+	admin, err := e.isGlobalAdministrator(userID)
+	if err != nil || admin {
+		return admin, err
+	}
+	bindings, err := e.bindingsForPermission(userID, permissionCode)
+	if err != nil {
+		return false, err
+	}
+	for _, binding := range bindings {
+		if binding.ScopeType == model.AccessScopeGlobal && binding.ScopeID == "*" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (e *Evaluator) PermissionCodes(userID uint) ([]string, error) {
 	active, err := e.isActiveUser(userID)
 	if err != nil || !active {
@@ -108,9 +132,7 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 				return ResourceFilter{All: true}, nil
 			}
 		case model.AccessScopeResource:
-			if binding.ResourceType == resourceType {
-				// Resource bindings are node-agnostic by schema; when the same stable
-				// ID exists on multiple nodes, project scope should be preferred.
+			if binding.ResourceType == resourceType && binding.NodeID == nodeID {
 				ids[binding.ScopeID] = struct{}{}
 			}
 		case model.AccessScopeProject:
@@ -157,7 +179,7 @@ func (e *Evaluator) bindingMatches(binding model.AccessRoleBinding, resource Res
 	case model.AccessScopeNode:
 		return binding.ScopeID == strconv.FormatUint(uint64(resource.NodeID), 10), nil
 	case model.AccessScopeResource:
-		return resource.Type != "" && resource.ID != "" && binding.ResourceType == resource.Type && binding.ScopeID == resource.ID, nil
+		return resource.Type != "" && resource.ID != "" && binding.ResourceType == resource.Type && binding.ScopeID == resource.ID && binding.NodeID == resource.NodeID, nil
 	case model.AccessScopeProject:
 		if resource.Type == "project" && resource.ID == binding.ScopeID {
 			return true, nil

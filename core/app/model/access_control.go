@@ -12,9 +12,10 @@ const (
 	AccessScopeResource = "resource"
 )
 
-// AccessUser is a local 1Panel account used by the community RBAC layer.
-// Authentication-specific secrets stay on the user record while authorization
-// is expressed through AccessRoleBinding.
+// AccessUser is a local 1Panel identity used by the community RBAC layer.
+// Interactive users have AuthSource=local. Service accounts reuse the same
+// authorization evaluator with AuthSource=service_account and cannot log in
+// through the interactive password flow.
 type AccessUser struct {
 	BaseModel
 	Username          string     `gorm:"size:128;not null;uniqueIndex" json:"username"`
@@ -22,7 +23,7 @@ type AccessUser struct {
 	Email             string     `gorm:"size:254;index" json:"email"`
 	PasswordHash      string     `gorm:"size:255;not null" json:"-"`
 	Status            string     `gorm:"size:32;not null;index" json:"status"`
-	AuthSource        string     `gorm:"size:32;not null;default:local" json:"authSource"`
+	AuthSource        string     `gorm:"size:32;not null;default:local;index" json:"authSource"`
 	RequireMFA        bool       `gorm:"not null;default:false" json:"requireMFA"`
 	MFAEnabled        bool       `gorm:"not null;default:false" json:"mfaEnabled"`
 	MFASecret         string     `gorm:"type:text" json:"-"`
@@ -63,8 +64,8 @@ type AccessRolePermission struct {
 
 func (AccessRolePermission) TableName() string { return "rbac_role_permissions" }
 
-// AccessRoleBinding assigns a role to a user at one scope. Global bindings use
-// ScopeID="*". Resource bindings additionally set ResourceType.
+// AccessRoleBinding assigns a role to an identity at one scope. Global
+// bindings use ScopeID="*". Resource bindings additionally set ResourceType.
 type AccessRoleBinding struct {
 	BaseModel
 	UserID       uint   `gorm:"not null;index;uniqueIndex:idx_rbac_binding,priority:1" json:"userId"`
@@ -77,9 +78,8 @@ type AccessRoleBinding struct {
 func (AccessRoleBinding) TableName() string { return "rbac_role_bindings" }
 
 // AccessProject is an authorization boundary grouping resources that belong to
-// the same internal application/product. RootPath is an administrator-selected
-// host directory that bounds restricted project bind mounts and future scoped
-// file access. It is never inferred from user input at container creation time.
+// the same internal application/product. RootPath is administrator-controlled
+// and bounds restricted bind mounts and File Manager operations.
 type AccessProject struct {
 	BaseModel
 	Name        string `gorm:"size:255;not null" json:"name"`
@@ -100,3 +100,53 @@ type AccessProjectResource struct {
 }
 
 func (AccessProjectResource) TableName() string { return "rbac_project_resources" }
+
+// AccessNodeScope maps the opaque node selector used by the multi-node provider
+// (operateNode/CurrentNode) to a stable numeric RBAC scope. Local/master remains
+// node ID 0 and therefore needs no database row.
+type AccessNodeScope struct {
+	BaseModel
+	ExternalKey string `gorm:"size:255;not null;uniqueIndex" json:"externalKey"`
+	Name        string `gorm:"size:255;not null" json:"name"`
+	Status      string `gorm:"size:32;not null;default:active;index" json:"status"`
+}
+
+func (AccessNodeScope) TableName() string { return "rbac_node_scopes" }
+
+// AccessServiceCredential stores only a hash of the bearer secret. The linked
+// AccessUser has AuthSource=service_account and carries normal RBAC bindings.
+type AccessServiceCredential struct {
+	BaseModel
+	UserID      uint       `gorm:"not null;uniqueIndex;index" json:"userId"`
+	Name        string     `gorm:"size:255;not null" json:"name"`
+	KeyID       string     `gorm:"size:64;not null;uniqueIndex" json:"keyId"`
+	SecretHash  string     `gorm:"size:64;not null" json:"-"`
+	IPWhiteList string     `gorm:"type:text" json:"ipWhiteList"`
+	Status      string     `gorm:"size:32;not null;default:active;index" json:"status"`
+	ExpiresAt   *time.Time `json:"expiresAt"`
+	LastUsedAt  *time.Time `json:"lastUsedAt"`
+}
+
+func (AccessServiceCredential) TableName() string { return "rbac_service_credentials" }
+
+// AccessAuditEvent is the security decision ledger for the Community RBAC
+// layer. Secret values and raw request bodies must never be written here.
+type AccessAuditEvent struct {
+	BaseModel
+	SubjectType string `gorm:"size:32;not null;index" json:"subjectType"`
+	SubjectID   uint   `gorm:"not null;index" json:"subjectId"`
+	SubjectName string `gorm:"size:255;index" json:"subjectName"`
+	Action      string `gorm:"size:128;not null;index" json:"action"`
+	Decision    string `gorm:"size:16;not null;index" json:"decision"`
+	ResourceType string `gorm:"size:64;index" json:"resourceType"`
+	ResourceID   string `gorm:"size:255;index" json:"resourceId"`
+	NodeID       uint   `gorm:"not null;default:0;index" json:"nodeId"`
+	ProjectID    uint   `gorm:"not null;default:0;index" json:"projectId"`
+	Method       string `gorm:"size:16" json:"method"`
+	Path         string `gorm:"size:1024" json:"path"`
+	RemoteIP     string `gorm:"size:128" json:"remoteIp"`
+	Reason       string `gorm:"size:1024" json:"reason"`
+	Metadata     string `gorm:"type:text" json:"metadata"`
+}
+
+func (AccessAuditEvent) TableName() string { return "rbac_audit_events" }

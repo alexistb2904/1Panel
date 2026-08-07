@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
@@ -13,6 +14,9 @@ import (
 func requestNodeSelector(c *gin.Context) string {
 	for _, value := range []string{c.Query("operateNode"), c.GetHeader("CurrentNode"), c.GetHeader("X-Panel-Current-Node")} {
 		value = strings.TrimSpace(value)
+		if decoded, err := url.QueryUnescape(value); err == nil {
+			value = strings.TrimSpace(decoded)
+		}
 		if value != "" && value != "undefined" {
 			return value
 		}

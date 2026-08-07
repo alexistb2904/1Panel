@@ -77,13 +77,15 @@ type AccessRoleBinding struct {
 func (AccessRoleBinding) TableName() string { return "rbac_role_bindings" }
 
 // AccessProject is an authorization boundary grouping resources that belong to
-// the same internal application/product. It intentionally does not model a
-// reseller/customer hierarchy.
+// the same internal application/product. RootPath is an administrator-selected
+// host directory that bounds restricted project bind mounts and future scoped
+// file access. It is never inferred from user input at container creation time.
 type AccessProject struct {
 	BaseModel
 	Name        string `gorm:"size:255;not null" json:"name"`
 	Slug        string `gorm:"size:128;not null;uniqueIndex" json:"slug"`
 	Description string `gorm:"size:1024" json:"description"`
+	RootPath    string `gorm:"size:2048" json:"rootPath"`
 	Status      string `gorm:"size:32;not null;default:active;index" json:"status"`
 }
 

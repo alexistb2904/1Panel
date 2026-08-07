@@ -15,7 +15,7 @@ import (
 func SessionAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiReq := c.GetBool("API_AUTH")
-		if isAnonymousAuthPath(c.Request.URL.Path) || apiReq || c.GetBool("LOCAL_REQUEST") {
+		if isAnonymousAuthPath(c.Request.URL.Path) || apiReq || c.GetBool("SCOPED_API_AUTH") || c.GetBool("LOCAL_REQUEST") {
 			c.Next()
 			return
 		}
@@ -43,7 +43,6 @@ func SessionAuth() gin.HandlerFunc {
 			return
 		}
 		lifeTime, _ := strconv.Atoi(sessionTimeout)
-
 		if _, err := global.SESSION.RefreshIfNeeded(c, psession, global.CONF.Conn.SSL == constant.StatusEnable, lifeTime); err != nil {
 			errItem := err.Error()
 			if errItem == "ErrSessionDataFormat" || errItem == "ErrSessionDataNotFound" {

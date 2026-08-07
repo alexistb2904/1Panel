@@ -118,18 +118,20 @@ func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {
 	return false
 }
 
-// serviceAccountClientIP never trusts forwarding headers from an arbitrary
-// peer. X-Forwarded-For/X-Real-IP are considered only when the TCP peer itself
-// matches the administrator-managed ApiTrustedProxies setting.
 func serviceAccountClientIP(c *gin.Context) string {
+	trustedRaw, err := repo.NewISettingRepo().GetValueByKey("ApiTrustedProxies")
+	if err != nil { trustedRaw = "" }
+	return serviceAccountClientIPWithTrustedProxies(c, trustedRaw)
+}
+
+// serviceAccountClientIPWithTrustedProxies never trusts forwarding headers from
+// an arbitrary peer. X-Forwarded-For/X-Real-IP are considered only when the TCP
+// peer itself matches the administrator-managed trusted proxy set.
+func serviceAccountClientIPWithTrustedProxies(c *gin.Context, trustedRaw string) string {
 	peerRaw := directPeerIP(c.Request.RemoteAddr)
 	peer := net.ParseIP(peerRaw)
 	if peer == nil {
 		return peerRaw
-	}
-	trustedRaw, err := repo.NewISettingRepo().GetValueByKey("ApiTrustedProxies")
-	if err != nil {
-		return peer.String()
 	}
 	trusted := parseTrustedProxyNetworks(trustedRaw)
 	if !ipInNetworks(peer, trusted) {

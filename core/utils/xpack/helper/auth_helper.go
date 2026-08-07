@@ -3,6 +3,7 @@ package helper
 import (
 	"github.com/1Panel-dev/1Panel/core/app/auth"
 	baseDto "github.com/1Panel-dev/1Panel/core/app/dto"
+	"github.com/1Panel-dev/1Panel/core/app/rbac"
 	"github.com/1Panel-dev/1Panel/core/utils/mfa"
 	"github.com/1Panel-dev/1Panel/core/utils/xpack/providers"
 	"github.com/gin-gonic/gin"
@@ -59,7 +60,9 @@ func (a *authHelper) CoreAPIAuthMiddleware() gin.HandlerFunc {
 	return auth.APIAuthMiddleware(auth.LoadAPIAuthConfig, nil)
 }
 
-func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc { return nil }
+func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
+	return []gin.HandlerFunc{rbac.IdentityMiddleware()}
+}
 
 func (a *authHelper) LoadMFA(_ *gin.Context, req baseDto.MfaRequest) (mfa.Otp, error) {
 	return auth.LoadMFA(req)

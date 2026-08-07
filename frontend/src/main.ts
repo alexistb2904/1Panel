@@ -19,8 +19,8 @@ import i18n, { ensureFallbackLocale, loadLocaleMessages } from '@/lang/index';
 import pinia from '@/store/index';
 import SvgIcon from './components/svg-icon/svg-icon.vue';
 import Components from '@/components';
-
 import directives from '@/directives/index';
+import { installProjectScopeInterceptor } from '@/utils/project-scope';
 
 const bootstrap = async () => {
     const currentLocale = i18n.global.locale.value;
@@ -36,6 +36,7 @@ const bootstrap = async () => {
     });
 
     app.use(pinia);
+    installProjectScopeInterceptor();
     app.use(router);
     app.use(i18n);
     app.use(Components);

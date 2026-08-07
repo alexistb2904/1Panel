@@ -10,7 +10,7 @@ var ApiGroupApp = new(ApiGroup)
 
 var (
 	authService    = service.NewIAuthService()
-	accessService  = service.NewIAccessService()
+	accessService  = service.NewAccessService()
 	backupService  = service.NewIBackupService()
 	settingService = service.NewISettingService()
 	logService     = service.NewILogService()

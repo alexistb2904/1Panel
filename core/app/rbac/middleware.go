@@ -14,34 +14,33 @@ import (
 
 const GinContextAccessUserIDKey = "rbac_access_user_id"
 
-// IdentityMiddleware resolves an authenticated 1Panel session to the community
-// RBAC identity. It does not infer authorization from URLs; handlers must use
-// RequireGlobal or Evaluator.Can with an explicit resource context.
 func IdentityMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if _, ok := CurrentUserID(c); ok {
+			c.Next()
+			return
+		}
 		sessionUser, err := global.SESSION.Get(c)
 		if err != nil {
 			c.Next()
 			return
 		}
-
 		accessUser, err := accessUserForSession(sessionUser)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) && sessionUser.ID == psession.SuperAdminSessionUserID {
-				// Upgrade compatibility: legacy administrator sessions remain usable
-				// until the RBAC bootstrap migration has completed.
 				c.Next()
 				return
 			}
 			deny(c, http.StatusUnauthorized, "RBAC identity is not available")
 			return
 		}
-		if accessUser.Status != model.AccessUserStatusActive {
+		if accessUser.Status != model.AccessUserStatusActive || accessUser.AuthSource == "service_account" {
 			_ = global.SESSION.DeleteByID(sessionUser.ID)
-			deny(c, http.StatusUnauthorized, "User account is disabled")
+			deny(c, http.StatusUnauthorized, "User account is disabled or non-interactive")
 			return
 		}
 		c.Set(GinContextAccessUserIDKey, accessUser.ID)
+		c.Set(GinContextRBACSubjectTypeKey, "user")
 		c.Next()
 	}
 }
@@ -55,22 +54,22 @@ func CurrentUserID(c *gin.Context) (uint, bool) {
 	return id, ok && id != 0
 }
 
-// RequireGlobal is intended for platform-level endpoints such as user/role
-// administration. Project and resource endpoints must instead build an
-// explicit ResourceContext and call Evaluator.Can.
 func RequireGlobal(permissionCode string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, ok := CurrentUserID(c)
 		if !ok {
+			AuditDecision(c, 0, permissionCode, "deny", "global", "", 0, 0, "RBAC identity is required")
 			deny(c, http.StatusPreconditionFailed, "RBAC identity is required")
 			return
 		}
 		allowed, err := NewEvaluator(global.DB).Can(userID, permissionCode, ResourceContext{})
 		if err != nil {
+			AuditDecision(c, userID, permissionCode, "deny", "global", "", 0, 0, "permission evaluation failed")
 			deny(c, http.StatusInternalServerError, "Unable to evaluate permission")
 			return
 		}
 		if !allowed {
+			AuditDecision(c, userID, permissionCode, "deny", "global", "", 0, 0, "permission denied")
 			deny(c, http.StatusPreconditionFailed, "Permission denied: "+permissionCode)
 			return
 		}
@@ -93,9 +92,9 @@ func accessUserForSession(sessionUser psession.SessionUser) (model.AccessUser, e
 }
 
 func deny(c *gin.Context, code int, message string) {
-	c.JSON(http.StatusOK, gin.H{
-		"code":    code,
-		"message": message,
-	})
+	if userID, ok := CurrentUserID(c); ok {
+		AuditDecision(c, userID, "request.denied", "deny", "request", c.Request.URL.Path, 0, 0, message)
+	}
+	c.JSON(http.StatusOK, gin.H{"code": code, "message": message})
 	c.Abort()
 }

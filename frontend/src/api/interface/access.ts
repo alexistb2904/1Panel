@@ -1,7 +1,7 @@
 export namespace AccessControl {
     export interface BindingInput {
         roleKey: string;
-        scopeType: 'global' | 'node' | 'project' | 'resource';
+        scopeType: 'global' | 'node' | 'project';
         scopeId: string;
         resourceType?: string;
         nodeId?: number;
@@ -52,6 +52,11 @@ export namespace AccessControl {
         resourceId: string;
     }
 
+    export interface ProjectNode {
+        nodeId: number;
+        rootPath: string;
+    }
+
     export interface Project {
         id: number;
         name: string;
@@ -61,6 +66,7 @@ export namespace AccessControl {
         status: 'active' | 'archived';
         createdAt: string;
         resources: ProjectResource[];
+        nodes: ProjectNode[];
     }
 
     export interface Node {

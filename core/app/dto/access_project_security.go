@@ -8,8 +8,10 @@ type AccessProjectRootUpdate struct {
 }
 
 type AccessProjectNodeInfo struct {
-	NodeID   uint   `json:"nodeId"`
-	RootPath string `json:"rootPath"`
+	NodeID      uint   `json:"nodeId"`
+	Name        string `json:"name"`
+	ExternalKey string `json:"externalKey"`
+	RootPath    string `json:"rootPath"`
 }
 
 type AccessProjectSecurityInfo struct {

@@ -43,6 +43,10 @@ func FileRBAC() gin.HandlerFunc {
 			return
 		}
 		for _, path := range paths {
+			if symlink, err := pathContainsSymlinkComponent(path); err != nil || symlink {
+				denyFileAccess(c, "Restricted File Manager paths may not traverse symlinks")
+				return
+			}
 			root, resolved, ok := pathWithinAnyProjectRoot(path, roots)
 			if !ok {
 				denyFileAccess(c, "File path is outside the assigned project roots")
@@ -50,6 +54,22 @@ func FileRBAC() gin.HandlerFunc {
 			}
 			if permission == "website.files.delete" && resolved == root {
 				denyFileAccess(c, "Deleting a project root is not allowed")
+				return
+			}
+		}
+
+		// Re-check immediately before dispatch. This narrows the check/use window
+		// and, together with the no-symlink policy, prevents the practical class
+		// of symlink swaps that previously allowed a validated project path to be
+		// redirected outside its root. Long-running path-capturing operations are
+		// administrator-only below until fd-relative openat2 handling is added.
+		for _, path := range paths {
+			if symlink, err := pathContainsSymlinkComponent(path); err != nil || symlink {
+				denyFileAccess(c, "File path changed to a symlink before execution")
+				return
+			}
+			if _, _, ok := pathWithinAnyProjectRoot(path, roots); !ok {
+				denyFileAccess(c, "File path changed outside the assigned project roots")
 				return
 			}
 		}
@@ -62,8 +82,12 @@ func validateRestrictedFileOperation(c *gin.Context) error {
 	switch path {
 	case "/owner", "/mode", "/batch/role":
 		return errors.New("Changing Unix ownership or permission modes is administrator-only")
-	case "/decompress":
-		return errors.New("Archive extraction is administrator-only until scoped symlink extraction is enforced")
+	case "/decompress", "/decompress/stop":
+		return errors.New("Archive extraction is administrator-only until fd-relative extraction is enforced")
+	case "/wget", "/wget/stop", "/wget/process", "/wget/process/keys":
+		return errors.New("Server-side remote fetch is administrator-only to prevent SSRF")
+	case "/compress", "/compress/stop", "/convert", "/convert/log":
+		return errors.New("Long-running path-capturing file tasks are administrator-only until fd-relative execution is enforced")
 	}
 	if path == "" && c.Request.Method == http.MethodPost {
 		body, payload, err := readRBACJSONBody(c)
@@ -75,6 +99,9 @@ func validateRestrictedFileOperation(c *gin.Context) error {
 		}
 		if mode := uintValue(payload["mode"]); mode&07000 != 0 {
 			return errors.New("SUID, SGID and sticky permission bits are administrator-only")
+		}
+		if boolValue(payload["isLink"]) || boolValue(payload["isSymlink"]) {
+			return errors.New("Creating hard links or symlinks is administrator-only for scoped File Manager users")
 		}
 	}
 	return nil
@@ -137,7 +164,7 @@ func collectRestrictedFilePaths(c *gin.Context) ([]string, error) {
 		if name := strings.TrimSpace(valueString(payload["name"])); name != "" { paths = append(paths, filepath.Join(dst, name)) }
 	}
 	if path := strings.TrimSpace(valueString(payload["path"])); path != "" {
-		if name := strings.TrimSpace(valueString(payload["name"])); name != "" && (strings.HasSuffix(c.Request.URL.Path, "/wget") || strings.HasSuffix(c.Request.URL.Path, "/chunkdownload")) { paths = append(paths, filepath.Join(path, name)) }
+		if name := strings.TrimSpace(valueString(payload["name"])); name != "" && strings.HasSuffix(c.Request.URL.Path, "/chunkdownload") { paths = append(paths, filepath.Join(path, name)) }
 	}
 	if rawFiles, ok := payload["files"].([]any); ok {
 		for _, raw := range rawFiles {
@@ -165,6 +192,28 @@ func compactPaths(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func pathContainsSymlinkComponent(target string) (bool, error) {
+	if !filepath.IsAbs(target) {
+		return false, errors.New("path must be absolute")
+	}
+	abs := filepath.Clean(target)
+	current := string(filepath.Separator)
+	parts := strings.Split(strings.TrimPrefix(abs, string(filepath.Separator)), string(filepath.Separator))
+	for _, part := range parts {
+		if part == "" { continue }
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if os.IsNotExist(err) { return false, nil }
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func pathWithinAnyProjectRoot(target string, roots []string) (string, string, bool) {

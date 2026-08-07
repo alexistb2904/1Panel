@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
+	"github.com/1Panel-dev/1Panel/core/app/repo"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -49,7 +50,8 @@ func ServiceAccountAuthMiddleware() gin.HandlerFunc {
 			deny(c, http.StatusUnauthorized, "Invalid service account token")
 			return
 		}
-		if !serviceAccountIPAllowed(c.ClientIP(), credential.IPWhiteList) {
+		clientIP := serviceAccountClientIP(c)
+		if !serviceAccountIPAllowed(clientIP, credential.IPWhiteList) {
 			deny(c, http.StatusUnauthorized, "Service account IP is not allowed")
 			return
 		}
@@ -80,6 +82,78 @@ func splitServiceToken(token string) (string, string, bool) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true
+}
+
+func directPeerIP(remoteAddr string) string {
+	remoteAddr = strings.TrimSpace(remoteAddr)
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return strings.TrimSpace(host)
+	}
+	return remoteAddr
+}
+
+func parseTrustedProxyNetworks(raw string) []*net.IPNet {
+	var networks []*net.IPNet
+	for _, item := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == ';' }) {
+		item = strings.TrimSpace(item)
+		if item == "" { continue }
+		if ip := net.ParseIP(item); ip != nil {
+			bits := 128
+			if ip.To4() != nil { bits = 32 }
+			networks = append(networks, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		if _, network, err := net.ParseCIDR(item); err == nil {
+			networks = append(networks, network)
+		}
+	}
+	return networks
+}
+
+func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {
+	if ip == nil { return false }
+	for _, network := range networks {
+		if network.Contains(ip) { return true }
+	}
+	return false
+}
+
+// serviceAccountClientIP never trusts forwarding headers from an arbitrary
+// peer. X-Forwarded-For/X-Real-IP are considered only when the TCP peer itself
+// matches the administrator-managed ApiTrustedProxies setting.
+func serviceAccountClientIP(c *gin.Context) string {
+	peerRaw := directPeerIP(c.Request.RemoteAddr)
+	peer := net.ParseIP(peerRaw)
+	if peer == nil {
+		return peerRaw
+	}
+	trustedRaw, err := repo.NewISettingRepo().GetValueByKey("ApiTrustedProxies")
+	if err != nil {
+		return peer.String()
+	}
+	trusted := parseTrustedProxyNetworks(trustedRaw)
+	if !ipInNetworks(peer, trusted) {
+		return peer.String()
+	}
+
+	forwarded := strings.Join(c.Request.Header.Values("X-Forwarded-For"), ",")
+	if strings.TrimSpace(forwarded) != "" {
+		parts := strings.Split(forwarded, ",")
+		var leftmost net.IP
+		for i := len(parts) - 1; i >= 0; i-- {
+			candidate := net.ParseIP(strings.TrimSpace(parts[i]))
+			if candidate == nil { continue }
+			leftmost = candidate
+			if !ipInNetworks(candidate, trusted) {
+				return candidate.String()
+			}
+		}
+		if leftmost != nil { return leftmost.String() }
+	}
+	if realIP := net.ParseIP(strings.TrimSpace(c.GetHeader("X-Real-IP"))); realIP != nil {
+		return realIP.String()
+	}
+	return peer.String()
 }
 
 func serviceAccountIPAllowed(clientIP, raw string) bool {

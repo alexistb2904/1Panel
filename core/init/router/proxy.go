@@ -44,7 +44,9 @@ func Proxy() gin.HandlerFunc {
 			return
 		}
 
-		apiReq := c.GetBool("API_AUTH")
+		// Scoped service accounts are already authenticated and authorized by
+		// the RBAC stack and deliberately have no browser session cookie.
+		apiReq := c.GetBool("API_AUTH") || c.GetBool("SCOPED_API_AUTH")
 
 		if !apiReq && !isLocalAPI(reqPath) && !middleware.IsPublicFileShareAPI(reqPath) && !checkSession(c) {
 			data, _ := res.ErrorMsg.ReadFile("html/401.html")

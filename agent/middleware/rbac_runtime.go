@@ -64,7 +64,6 @@ func RuntimeRBAC() gin.HandlerFunc {
 			allowedSet[item] = struct{}{}
 		}
 		if _, exists := allowedSet[key]; !exists {
-			// Backwards compatibility for manually attached numeric runtime IDs.
 			if id := runtimeIDFromPayloadOrPath(c.Request.URL.Path, payload); id != 0 {
 				if _, numericExists := allowedSet[strconv.FormatUint(uint64(id), 10)]; !numericExists {
 					denyRuntimeAccess(c, "Runtime is outside the assigned project scope")
@@ -115,20 +114,26 @@ func runtimeIDFromPayloadOrPath(path string, payload map[string]any) uint {
 }
 
 func validateRestrictedRuntimePaths(payload map[string]any, projectRoot string) error {
+	codeDir := strings.TrimSpace(valueString(payload["codeDir"]))
+	rawVolumes, hasVolumes := payload["volumes"].([]any)
+	hasHostPathMutation := codeDir != "" || (hasVolumes && len(rawVolumes) > 0)
+	if !hasHostPathMutation {
+		return nil
+	}
 	projectRoot = strings.TrimSpace(projectRoot)
 	if projectRoot == "" {
-		return &runtimePolicyError{"Project root is required for restricted runtime changes"}
+		return &runtimePolicyError{"Project root is required for restricted runtime host path changes"}
 	}
 	root, err := filepath.Abs(filepath.Clean(projectRoot))
 	if err != nil || root == string(filepath.Separator) {
 		return &runtimePolicyError{"Invalid project root"}
 	}
-	if codeDir := strings.TrimSpace(valueString(payload["codeDir"])); codeDir != "" {
+	if codeDir != "" {
 		if err := ensurePathInsideRuntimeRoot(root, codeDir); err != nil {
 			return err
 		}
 	}
-	if rawVolumes, ok := payload["volumes"].([]any); ok {
+	if hasVolumes {
 		for _, raw := range rawVolumes {
 			volume, ok := raw.(map[string]any)
 			if !ok {
@@ -162,7 +167,6 @@ func ensurePathInsideRuntimeRoot(root, target string) error {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return &runtimePolicyError{"Runtime host paths must stay inside the assigned project root"}
 	}
-	// If the path exists, resolve symlinks to prevent project-root escape.
 	if resolved, err := filepath.EvalSymlinks(absTarget); err == nil {
 		resolvedRel, relErr := filepath.Rel(root, resolved)
 		if relErr != nil || resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(filepath.Separator)) {

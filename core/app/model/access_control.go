@@ -80,8 +80,9 @@ type AccessRoleBinding struct {
 func (AccessRoleBinding) TableName() string { return "rbac_role_bindings" }
 
 // AccessProject is an authorization boundary grouping resources that belong to
-// the same internal application/product. RootPath is administrator-controlled
-// and bounds restricted bind mounts and File Manager operations.
+// the same internal application/product. RootPath is kept as a local-node
+// compatibility mirror; authorization always uses AccessProjectNode so a
+// project can never implicitly span every registered node.
 type AccessProject struct {
 	BaseModel
 	Name        string `gorm:"size:255;not null" json:"name"`
@@ -92,6 +93,18 @@ type AccessProject struct {
 }
 
 func (AccessProject) TableName() string { return "rbac_projects" }
+
+// AccessProjectNode is the explicit project-to-node trust boundary. Local is
+// node 0. RootPath is node-specific because identical host paths on two nodes
+// are not the same authorization target.
+type AccessProjectNode struct {
+	BaseModel
+	ProjectID uint   `gorm:"not null;index;uniqueIndex:idx_rbac_project_node,priority:1" json:"projectId"`
+	NodeID    uint   `gorm:"not null;default:0;index;uniqueIndex:idx_rbac_project_node,priority:2" json:"nodeId"`
+	RootPath  string `gorm:"size:2048" json:"rootPath"`
+}
+
+func (AccessProjectNode) TableName() string { return "rbac_project_nodes" }
 
 // A concrete resource has exactly one project owner on a given node. ProjectID
 // is intentionally not part of the unique key: duplicate ownership across

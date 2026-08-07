@@ -10,6 +10,7 @@ import (
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var forbiddenProjectRoots = map[string]struct{}{
@@ -32,27 +33,81 @@ func ListAccessProjectSecurity() ([]dto.AccessProjectSecurityInfo, error) {
 	}
 	result := make([]dto.AccessProjectSecurityInfo, 0, len(projects))
 	for _, project := range projects {
-		result = append(result, dto.AccessProjectSecurityInfo{
+		item := dto.AccessProjectSecurityInfo{
 			ID: project.ID, Name: project.Name, Slug: project.Slug,
-			RootPath: project.RootPath, Status: project.Status,
-		})
+			Status: project.Status,
+		}
+		var nodes []model.AccessProjectNode
+		if err := global.DB.Where("project_id = ?", project.ID).Order("node_id ASC").Find(&nodes).Error; err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			item.Nodes = append(item.Nodes, dto.AccessProjectNodeInfo{NodeID: node.NodeID, RootPath: node.RootPath})
+			if node.NodeID == 0 {
+				item.RootPath = node.RootPath
+			}
+		}
+		result = append(result, item)
 	}
 	return result, nil
 }
 
 func UpdateAccessProjectRoot(req dto.AccessProjectRootUpdate) error {
-	var project model.AccessProject
-	if err := global.DB.First(&project, req.ID).Error; err != nil {
-		return err
-	}
-	root, err := normalizeProjectRootPath(req.RootPath)
-	if err != nil {
-		return err
-	}
-	return global.DB.Model(&project).Update("root_path", root).Error
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		var project model.AccessProject
+		if err := tx.First(&project, req.ID).Error; err != nil {
+			return err
+		}
+		if req.NodeID > 0 {
+			var count int64
+			if err := tx.Model(&model.AccessNodeScope{}).Where("id = ? AND status = ?", req.NodeID, model.AccessUserStatusActive).Count(&count).Error; err != nil {
+				return err
+			}
+			if count == 0 {
+				return errors.New("project node is unknown or disabled")
+			}
+		}
+
+		enabled := true
+		if req.Enabled != nil {
+			enabled = *req.Enabled
+		}
+		if !enabled {
+			var resources int64
+			if err := tx.Model(&model.AccessProjectResource{}).Where("project_id = ? AND node_id = ?", project.ID, req.NodeID).Count(&resources).Error; err != nil {
+				return err
+			}
+			if resources != 0 {
+				return errors.New("project node cannot be detached while project resources still exist on it")
+			}
+			if err := tx.Where("project_id = ? AND node_id = ?", project.ID, req.NodeID).Delete(&model.AccessProjectNode{}).Error; err != nil {
+				return err
+			}
+			if req.NodeID == 0 {
+				return tx.Model(&project).Update("root_path", "").Error
+			}
+			return nil
+		}
+
+		root, err := normalizeProjectRootPathForNode(req.NodeID, req.RootPath)
+		if err != nil {
+			return err
+		}
+		item := model.AccessProjectNode{ProjectID: project.ID, NodeID: req.NodeID, RootPath: root}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "project_id"}, {Name: "node_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"root_path", "updated_at"}),
+		}).Create(&item).Error; err != nil {
+			return err
+		}
+		if req.NodeID == 0 {
+			return tx.Model(&project).Update("root_path", root).Error
+		}
+		return nil
+	})
 }
 
-func normalizeProjectRootPath(raw string) (string, error) {
+func normalizeProjectRootPathForNode(nodeID uint, raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", nil
@@ -61,27 +116,43 @@ func normalizeProjectRootPath(raw string) (string, error) {
 		return "", errors.New("project rootPath must be absolute")
 	}
 	clean := filepath.Clean(raw)
+	if _, blocked := forbiddenProjectRoots[clean]; blocked {
+		return "", errors.New("project rootPath is too broad or points to a protected system directory")
+	}
+	for _, sensitive := range []string{"/etc", "/proc", "/sys", "/dev", "/run", "/var/run/docker.sock"} {
+		if pathContains(clean, sensitive) {
+			return "", errors.New("project rootPath would include protected host resources")
+		}
+	}
+
+	// Core can resolve and verify the local filesystem. Remote roots are stored
+	// as normalized absolute paths and are revalidated by the Agent on the
+	// selected node immediately before every scoped filesystem/container use.
+	if nodeID != 0 {
+		return clean, nil
+	}
 	resolved, err := filepath.EvalSymlinks(clean)
 	if err != nil {
-		return "", errors.New("project rootPath must already exist and be resolvable")
+		return "", errors.New("local project rootPath must already exist and be resolvable")
 	}
 	resolved = filepath.Clean(resolved)
 	if _, blocked := forbiddenProjectRoots[resolved]; blocked {
-		return "", errors.New("project rootPath is too broad or points to a protected system directory")
+		return "", errors.New("project rootPath resolves to a protected system directory")
 	}
 	info, err := os.Stat(resolved)
 	if err != nil || !info.IsDir() {
-		return "", errors.New("project rootPath must be an existing directory")
+		return "", errors.New("local project rootPath must be an existing directory")
 	}
-
-	// A project boundary must never be able to encompass Linux pseudo-filesystems
-	// or the Docker daemon socket through a broad ancestor such as /var or /run.
 	for _, sensitive := range []string{"/etc", "/proc", "/sys", "/dev", "/run", "/var/run/docker.sock"} {
 		if pathContains(resolved, sensitive) {
 			return "", errors.New("project rootPath would include protected host resources")
 		}
 	}
 	return resolved, nil
+}
+
+func normalizeProjectRootPath(raw string) (string, error) {
+	return normalizeProjectRootPathForNode(0, raw)
 }
 
 func pathContains(root, candidate string) bool {
@@ -93,5 +164,5 @@ func pathContains(root, candidate string) bool {
 }
 
 func EnsureAccessProjectRootColumn(tx *gorm.DB) error {
-	return tx.AutoMigrate(&model.AccessProject{})
+	return tx.AutoMigrate(&model.AccessProject{}, &model.AccessProjectNode{})
 }

@@ -9,13 +9,13 @@ const containerRouter = {
     meta: {
         icon: 'p-docker1',
         title: 'menu.container',
-        permission: 'container_view',
+        permission: ['docker.container.view', 'docker.compose.view'],
     },
     children: [
         {
             path: '/containers',
             name: 'Container',
-            redirect: '/containers/dashboard',
+            redirect: '/containers/container',
             component: () => import('@/views/container/index.vue'),
             meta: {},
             children: [
@@ -29,7 +29,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'menu.home',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -42,7 +42,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'menu.container',
-                        permission: 'container_view',
+                        permission: 'docker.container.view',
                     },
                 },
                 {
@@ -54,7 +54,7 @@ const containerRouter = {
                     meta: {
                         activeMenu: '/containers',
                         ignoreTab: true,
-                        permission: 'container_view',
+                        permission: ['docker.container.create', 'docker.container.edit'],
                     },
                 },
                 {
@@ -66,7 +66,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.image',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -78,7 +78,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.network',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -90,7 +90,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.volume',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -102,7 +102,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.repo',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -114,7 +114,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.compose',
-                        permission: 'container_view',
+                        permission: 'docker.compose.view',
                     },
                 },
                 {
@@ -126,7 +126,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.composeTemplate',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -138,7 +138,7 @@ const containerRouter = {
                         activeMenu: '/containers',
                         parent: 'menu.container',
                         title: 'container.setting',
-                        permission: 'container_view',
+                        permission: 'settings.manage',
                     },
                 },
             ],

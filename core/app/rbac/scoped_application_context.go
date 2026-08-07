@@ -1,8 +1,10 @@
 package rbac
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +35,6 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 		for _, key := range []string{HeaderRBACProjectID, HeaderRBACProjectRoot, HeaderRBACRestricted} {
 			c.Request.Header.Del(key)
 		}
-
 		if c.GetBool("API_AUTH") || c.GetBool("LOCAL_REQUEST") {
 			resourceType := "database"
 			if strings.HasPrefix(path, "/api/v2/runtimes") {
@@ -43,7 +44,6 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
 		userID, ok := CurrentUserID(c)
 		if !ok {
 			deny(c, http.StatusPreconditionFailed, "RBAC identity is required")
@@ -60,7 +60,6 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
 		nodeID, _, err := ResolveRequestNodeID(c)
 		if err != nil {
 			deny(c, http.StatusPreconditionFailed, err.Error())
@@ -76,9 +75,8 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 			return
 		}
 		if body != nil {
-			restoreRequestBody(c, body)
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
 		}
-
 		if req.Creating {
 			project, err := authorizeProjectResourceCreation(evaluator, userID, nodeID, req)
 			if err != nil {
@@ -94,7 +92,6 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
 		filter, err := evaluator.AccessibleResourceIDs(userID, req.Permission, req.ResourceType, nodeID)
 		if err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to resolve resource scope")
@@ -102,7 +99,6 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 		}
 		setAgentRBACHeaders(c, userID, req.Permission, req.ResourceType, filter)
 		c.Request.Header.Set(HeaderRBACRestricted, "1")
-
 		if req.NeedsRoot {
 			project, err := projectForScopedResource(nodeID, req.ResourceType, req.ResourceID, req.ProjectID)
 			if err != nil {
@@ -138,11 +134,8 @@ func classifyDatabaseCoreRequest(method, path string, payload map[string]any) sc
 	name := value("name")
 	id := uintValueJSON(payload["id"])
 	kind := strings.ToLower(value("type"))
-
 	switch path {
-	case "/api/v2/databases/search":
-		return scopedApplicationRequest{Permission: "database.view", ResourceType: "database"}
-	case "/api/v2/databases/pg/search", "/api/v2/databases/mongodb/search":
+	case "/api/v2/databases/search", "/api/v2/databases/pg/search", "/api/v2/databases/mongodb/search":
 		return scopedApplicationRequest{Permission: "database.view", ResourceType: "database"}
 	case "/api/v2/databases":
 		if method == http.MethodPost && instance != "" && name != "" {
@@ -157,7 +150,6 @@ func classifyDatabaseCoreRequest(method, path string, payload map[string]any) sc
 			return scopedApplicationRequest{Permission: "database.create", ResourceType: "database", ResourceID: databaseKey("mongodb", instance, name), ProjectID: projectID, Creating: true}
 		}
 	}
-
 	permission := ""
 	switch path {
 	case "/api/v2/databases/del/check":
@@ -172,8 +164,7 @@ func classifyDatabaseCoreRequest(method, path string, payload map[string]any) sc
 		permission = "database.view"
 	case "/api/v2/databases/pg/del", "/api/v2/databases/mongodb/del":
 		permission = "database.delete"
-	case "/api/v2/databases/pg/description", "/api/v2/databases/pg/bind", "/api/v2/databases/pg/privileges",
-		"/api/v2/databases/mongodb/description", "/api/v2/databases/mongodb/bind", "/api/v2/databases/mongodb/privileges/change":
+	case "/api/v2/databases/pg/description", "/api/v2/databases/pg/bind", "/api/v2/databases/pg/privileges", "/api/v2/databases/mongodb/description", "/api/v2/databases/mongodb/bind", "/api/v2/databases/mongodb/privileges/change":
 		permission = "database.update"
 	case "/api/v2/databases/pg/password", "/api/v2/databases/mongodb/password":
 		permission = "database.credentials.rotate"
@@ -182,11 +173,8 @@ func classifyDatabaseCoreRequest(method, path string, payload map[string]any) sc
 	default:
 		return scopedApplicationRequest{}
 	}
-
 	resourceID := ""
 	if id != 0 {
-		// Agent resolves numeric IDs to the stable key before execution. Core's
-		// filter still contains all accessible stable keys and Agent enforces it.
 		resourceID = strconv.FormatUint(uint64(id), 10)
 	} else if instance != "" && name != "" {
 		switch {
@@ -210,7 +198,6 @@ func classifyRuntimeCoreRequest(method, path string, payload map[string]any) sco
 	if path == "/api/v2/runtimes" && method == http.MethodPost {
 		return scopedApplicationRequest{Permission: "runtime.create", ResourceType: "runtime", ResourceID: runtimeKey(name), ProjectID: projectID, Creating: true, NeedsRoot: true}
 	}
-
 	id := runtimeIDFromCoreRequest(path, payload)
 	resourceID := ""
 	if id != 0 {
@@ -234,32 +221,20 @@ func classifyRuntimeCoreRequest(method, path string, payload map[string]any) sco
 		}
 	case "/api/v2/runtimes/node/modules":
 		permission = "runtime.view"
-	case "/api/v2/runtimes/node/modules/operate":
-		permission = "runtime.edit"
-	case "/api/v2/runtimes/php/config":
-		permission = "runtime.edit"
-	case "/api/v2/runtimes/php/update", "/api/v2/runtimes/php/fpm/config", "/api/v2/runtimes/php/extensions/install", "/api/v2/runtimes/php/extensions/uninstall":
+	case "/api/v2/runtimes/node/modules/operate", "/api/v2/runtimes/php/config", "/api/v2/runtimes/php/update", "/api/v2/runtimes/php/fpm/config", "/api/v2/runtimes/php/extensions/install", "/api/v2/runtimes/php/extensions/uninstall", "/api/v2/runtimes/supervisor/process", "/api/v2/runtimes/supervisor/process/file", "/api/v2/runtimes/remark":
 		permission = "runtime.edit"
 	case "/api/v2/runtimes/php/file":
 		permission = "runtime.view"
 	case "/api/v2/runtimes/php/container/update":
 		permission, needsRoot = "runtime.edit", true
-	case "/api/v2/runtimes/supervisor/process":
-		permission = "runtime.edit"
-	case "/api/v2/runtimes/supervisor/process/file":
-		permission = "runtime.edit"
-	case "/api/v2/runtimes/remark":
-		permission = "runtime.edit"
 	default:
 		segments := splitPath(strings.TrimPrefix(path, "/api/v2/runtimes"))
 		if len(segments) == 1 && id != 0 && method == http.MethodGet {
 			permission = "runtime.view"
 		} else if strings.HasPrefix(path, "/api/v2/runtimes/installed/delete/check/") {
 			permission = "runtime.view"
-		} else if strings.Contains(path, "/php/") || strings.Contains(path, "/supervisor/process/") {
-			if method == http.MethodGet {
-				permission = "runtime.view"
-			}
+		} else if (strings.Contains(path, "/php/") || strings.Contains(path, "/supervisor/process/")) && method == http.MethodGet {
+			permission = "runtime.view"
 		}
 	}
 	if permission == "" {
@@ -361,9 +336,7 @@ func hasRuntimeHostPathMutation(payload map[string]any) bool {
 func databaseKey(kind, instance, name string) string {
 	return strings.ToLower(strings.TrimSpace(kind)) + ":" + strings.TrimSpace(instance) + ":" + strings.TrimSpace(name)
 }
-
 func runtimeKey(name string) string { return "runtime:" + strings.TrimSpace(name) }
-
 func normalizeDatabaseKind(kind string) string {
 	switch kind {
 	case "postgresql", "postgresql-cluster":
@@ -374,27 +347,3 @@ func normalizeDatabaseKind(kind string) string {
 		return "mysql"
 	}
 }
-
-func restoreRequestBody(c *gin.Context, body []byte) {
-	c.Request.Body = ioNopCloser(body)
-}
-
-// small seam avoids repeating bytes.NewReader/io.NopCloser in classifiers.
-var ioNopCloser = func(body []byte) interface{ Read([]byte) (int, error); Close() error } {
-	return &byteReadCloser{data: body}
-}
-
-type byteReadCloser struct {
-	data []byte
-	off  int
-}
-
-func (r *byteReadCloser) Read(p []byte) (int, error) {
-	if r.off >= len(r.data) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.data[r.off:])
-	r.off += n
-	return n, nil
-}
-func (r *byteReadCloser) Close() error { return nil }

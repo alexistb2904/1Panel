@@ -42,7 +42,7 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 			return
 		}
 		evaluator := NewEvaluator(global.DB)
-		isAdministrator, err := evaluator.Can(userID, "settings.manage", ResourceContext{})
+		isAdministrator, err := evaluator.CanGlobal(userID, "settings.manage")
 		if err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to evaluate website access")
 			return
@@ -82,13 +82,13 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 				deny(c, http.StatusPreconditionFailed, "Project is not active")
 				return
 			}
-			if err := reserveProjectResource(projectID, nodeID, "website", resourceID); err != nil {
+			if _, err := projectResourceOwnedBy(projectID, nodeID, "website", resourceID); err != nil {
 				deny(c, http.StatusPreconditionFailed, err.Error())
 				return
 			}
 			setAgentRBACHeaders(c, userID, "website.create", "website", ResourceFilter{IDs: []string{resourceID}})
 			setProjectTransportHeaders(c, project)
-			c.Next()
+			ContinueCreationWithOwnership(c, projectID, nodeID, "website", resourceID)
 			return
 		}
 
@@ -135,99 +135,54 @@ func setAgentRBACHeaders(c *gin.Context, userID uint, permission, resourceType s
 
 func websitePermissionForRequest(method, fullPath string) (string, bool) {
 	path := strings.TrimPrefix(fullPath, "/api/v2/websites")
-	if path == "" || path == "/" {
-		return "", false
-	}
+	if path == "" || path == "/" { return "", false }
 	switch path {
 	case "/search", "/options":
-		if method == http.MethodPost {
-			return "website.view", true
-		}
+		if method == http.MethodPost { return "website.view", true }
 	case "/list":
-		if method == http.MethodGet {
-			return "website.view", true
-		}
-	case "/operate":
-		return "website.runtime.restart", method == http.MethodPost
-	case "/update":
-		return "website.update", method == http.MethodPost
-	case "/del":
-		return "website.delete", method == http.MethodPost
-	case "/log/search":
-		return "website.logs.view", method == http.MethodPost
-	case "/log/operate":
-		return "website.update", method == http.MethodPost
-	case "/group/change", "/batch/group":
-		return "website.update", method == http.MethodPost
-	case "/batch/operate":
-		return "website.runtime.restart", method == http.MethodPost
-	case "/batch/ssl":
-		return "website.ssl.manage", method == http.MethodPost
+		if method == http.MethodGet { return "website.view", true }
+	case "/operate": return "website.runtime.restart", method == http.MethodPost
+	case "/update": return "website.update", method == http.MethodPost
+	case "/del": return "website.delete", method == http.MethodPost
+	case "/log/search": return "website.logs.view", method == http.MethodPost
+	case "/log/operate": return "website.update", method == http.MethodPost
+	case "/group/change", "/batch/group": return "website.update", method == http.MethodPost
+	case "/batch/operate": return "website.runtime.restart", method == http.MethodPost
+	case "/batch/ssl": return "website.ssl.manage", method == http.MethodPost
 	case "/domains":
-		if method == http.MethodPost {
-			return "website.domain.manage", true
-		}
-	case "/domains/del", "/domains/update":
-		return "website.domain.manage", method == http.MethodPost
-	case "/config":
-		return "website.config.view", method == http.MethodPost
+		if method == http.MethodPost { return "website.domain.manage", true }
+	case "/domains/del", "/domains/update": return "website.domain.manage", method == http.MethodPost
+	case "/config": return "website.config.view", method == http.MethodPost
 	case "/config/update", "/nginx/update", "/rewrite/update", "/dir/update", "/dir/permission",
 		"/proxies/update", "/proxies/delete", "/proxies/status", "/proxies/file", "/proxy/config", "/proxy/clear",
 		"/auths/update", "/auths/path/update", "/cors/update", "/leech/update", "/redirect/update", "/redirect/file",
 		"/lbs/create", "/lbs/del", "/lbs/update", "/lbs/file", "/realip/config", "/crosssite", "/stream/update":
 		return "website.config.edit", method == http.MethodPost
-	case "/rewrite", "/dir", "/proxies", "/auths", "/auths/path", "/leech", "/redirect":
-		return "website.config.view", method == http.MethodPost
-	case "/php/version":
-		return "website.runtime.manage", method == http.MethodPost
-	case "/exec/composer":
-		return "website.shell", method == http.MethodPost
+	case "/rewrite", "/dir", "/proxies", "/auths", "/auths/path", "/leech", "/redirect": return "website.config.view", method == http.MethodPost
+	case "/php/version": return "website.runtime.manage", method == http.MethodPost
+	case "/exec/composer": return "website.shell", method == http.MethodPost
 	}
 	segments := splitPath(path)
-	if len(segments) == 0 {
-		return "", false
-	}
-	if segments[0] == "domains" && len(segments) == 2 && method == http.MethodGet {
-		return "website.domain.view", true
-	}
-	if segments[0] == "cors" && len(segments) == 2 && method == http.MethodGet {
-		return "website.config.view", true
-	}
-	if segments[0] == "realip" && len(segments) == 3 && segments[1] == "config" && method == http.MethodGet {
-		return "website.config.view", true
-	}
-	if segments[0] == "proxy" && len(segments) == 3 && segments[1] == "config" && method == http.MethodGet {
-		return "website.config.view", true
-	}
-	if segments[0] == "resource" && len(segments) == 2 && method == http.MethodGet {
-		return "website.view", true
-	}
+	if len(segments) == 0 { return "", false }
+	if segments[0] == "domains" && len(segments) == 2 && method == http.MethodGet { return "website.domain.view", true }
+	if segments[0] == "cors" && len(segments) == 2 && method == http.MethodGet { return "website.config.view", true }
+	if segments[0] == "realip" && len(segments) == 3 && segments[1] == "config" && method == http.MethodGet { return "website.config.view", true }
+	if segments[0] == "proxy" && len(segments) == 3 && segments[1] == "config" && method == http.MethodGet { return "website.config.view", true }
+	if segments[0] == "resource" && len(segments) == 2 && method == http.MethodGet { return "website.view", true }
 	if _, err := strconv.ParseUint(segments[0], 10, 64); err == nil {
-		if len(segments) == 1 && method == http.MethodGet {
-			return "website.view", true
-		}
+		if len(segments) == 1 && method == http.MethodGet { return "website.view", true }
 		if len(segments) == 2 && segments[1] == "https" {
-			if method == http.MethodGet {
-				return "website.ssl.view", true
-			}
-			if method == http.MethodPost {
-				return "website.ssl.manage", true
-			}
+			if method == http.MethodGet { return "website.ssl.view", true }
+			if method == http.MethodPost { return "website.ssl.manage", true }
 		}
-		if len(segments) >= 2 && segments[1] == "config" && method == http.MethodGet {
-			return "website.config.view", true
-		}
-		if len(segments) == 2 && segments[1] == "lbs" && method == http.MethodGet {
-			return "website.config.view", true
-		}
+		if len(segments) >= 2 && segments[1] == "config" && method == http.MethodGet { return "website.config.view", true }
+		if len(segments) == 2 && segments[1] == "lbs" && method == http.MethodGet { return "website.config.view", true }
 	}
 	return "", false
 }
 
 func splitPath(path string) []string {
 	trimmed := strings.Trim(path, "/")
-	if trimmed == "" {
-		return nil
-	}
+	if trimmed == "" { return nil }
 	return strings.Split(trimmed, "/")
 }

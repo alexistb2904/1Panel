@@ -27,16 +27,12 @@ const (
 	rbacModeNone = "none"
 )
 
-// WebsiteRBAC enforces the resource scope calculated by Core. Direct trusted
-// Core-to-Agent calls are explicitly marked as internal; browser traffic is
-// never allowed to fall back to an unscoped website handler.
 func WebsiteRBAC() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader(headerInternalRequest) == "1" {
 			c.Next()
 			return
 		}
-
 		mode := c.GetHeader(headerRBACMode)
 		if mode == "" {
 			denyWebsiteAccess(c, "Missing RBAC context")
@@ -46,21 +42,40 @@ func WebsiteRBAC() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
-		allowedIDs, ok := parseAllowedWebsiteIDs(c.GetHeader(headerRBACResourceIDs))
-		if mode == rbacModeNone {
-			allowedIDs = []uint{}
-			ok = true
-		}
 		if mode != rbacModeIDs && mode != rbacModeNone {
 			denyWebsiteAccess(c, "Invalid RBAC context")
 			return
 		}
-		if !ok {
-			denyWebsiteAccess(c, "Invalid website scope")
+		resources := parseRBACStringIDs(c.GetHeader(headerRBACResourceIDs))
+		if mode == rbacModeNone {
+			resources = nil
+		}
+
+		// Creation is authorized against the deterministic website:<alias> key
+		// reserved by Core before the Website row exists.
+		if c.Request.Method == http.MethodPost && strings.TrimSuffix(c.Request.URL.Path, "/") == "/api/v2/websites" {
+			body, payload, err := readRBACJSONBody(c)
+			if err != nil {
+				denyWebsiteAccess(c, "Unable to parse website creation target")
+				return
+			}
+			if body != nil {
+				c.Request.Body = io.NopCloser(bytes.NewReader(body))
+			}
+			key := "website:" + strings.TrimSpace(valueString(payload["alias"]))
+			if !containsString(resources, key) {
+				denyWebsiteAccess(c, "Website creation target is outside the assigned project")
+				return
+			}
+			c.Next()
 			return
 		}
 
+		allowedIDs, err := resolveAllowedWebsiteIDs(resources)
+		if err != nil {
+			denyWebsiteAccess(c, "Unable to resolve website scope")
+			return
+		}
 		if handleRestrictedWebsiteCollection(c, allowedIDs) {
 			return
 		}
@@ -68,7 +83,6 @@ func WebsiteRBAC() gin.HandlerFunc {
 			denyWebsiteAccess(c, "Website access denied")
 			return
 		}
-
 		targetIDs, err := resolveWebsiteIDs(c)
 		if err != nil || len(targetIDs) == 0 {
 			denyWebsiteAccess(c, "Unable to resolve website authorization target")
@@ -86,6 +100,41 @@ func WebsiteRBAC() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func resolveAllowedWebsiteIDs(resources []string) ([]uint, error) {
+	ids := make([]uint, 0, len(resources))
+	aliases := make([]string, 0)
+	seen := map[uint]struct{}{}
+	for _, resource := range resources {
+		if strings.HasPrefix(resource, "website:") {
+			alias := strings.TrimSpace(strings.TrimPrefix(resource, "website:"))
+			if alias != "" {
+				aliases = append(aliases, alias)
+			}
+			continue
+		}
+		if id := parseUint(resource); id != 0 {
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(aliases) != 0 {
+		var websites []model.Website
+		if err := global.DB.Select("id", "alias").Where("alias IN (?)", aliases).Find(&websites).Error; err != nil {
+			return nil, err
+		}
+		for _, website := range websites {
+			if _, ok := seen[website.ID]; ok {
+				continue
+			}
+			seen[website.ID] = struct{}{}
+			ids = append(ids, website.ID)
+		}
+	}
+	return ids, nil
 }
 
 func handleRestrictedWebsiteCollection(c *gin.Context, allowedIDs []uint) bool {
@@ -149,9 +198,6 @@ func resolveWebsiteIDs(c *gin.Context) ([]uint, error) {
 	if err := decoder.Decode(&payload); err != nil {
 		return nil, err
 	}
-
-	// Domain update/delete requests carry a domain record ID rather than a
-	// website ID. Resolve the owning website before authorization.
 	if c.Request.URL.Path == "/api/v2/websites/domains/del" || c.Request.URL.Path == "/api/v2/websites/domains/update" {
 		domainID := uintValue(payload["id"])
 		if domainID == 0 {
@@ -163,7 +209,6 @@ func resolveWebsiteIDs(c *gin.Context) ([]uint, error) {
 		}
 		return []uint{domain.WebsiteID}, nil
 	}
-
 	for _, key := range []string{"websiteID", "websiteId", "website_id"} {
 		if id := uintValue(payload[key]); id != 0 {
 			return []uint{id}, nil
@@ -206,27 +251,6 @@ func websiteIDsFromPath(path string) []uint {
 	return nil
 }
 
-func parseAllowedWebsiteIDs(raw string) ([]uint, bool) {
-	if raw == "" {
-		return []uint{}, true
-	}
-	parts := strings.Split(raw, ",")
-	ids := make([]uint, 0, len(parts))
-	seen := make(map[uint]struct{}, len(parts))
-	for _, part := range parts {
-		id := parseUint(strings.TrimSpace(part))
-		if id == 0 {
-			return nil, false
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	return ids, true
-}
-
 func uintSlice(raw any) []uint {
 	items, ok := raw.([]any)
 	if !ok {
@@ -262,6 +286,15 @@ func parseUint(raw string) uint {
 		return 0
 	}
 	return uint(value)
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func denyWebsiteAccess(c *gin.Context, message string) {

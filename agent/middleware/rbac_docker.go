@@ -31,15 +31,17 @@ const (
 	dockerRBACModeIDs = "ids"
 )
 
-// DockerRBAC is the Agent-side enforcement boundary. Core decides permissions
-// and project scope; Agent verifies concrete Docker targets and rejects runtime
-// definitions that could turn project access into host-root access.
+// DockerRBAC is the Agent-side security boundary for project-scoped Docker
+// access. Core decides which project/resources the user may touch; Agent then
+// resolves real Docker targets and rejects definitions capable of escaping the
+// intended project boundary.
 func DockerRBAC() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader(headerDockerInternalRequest) == "1" {
 			c.Next()
 			return
 		}
+
 		mode := c.GetHeader(headerDockerRBACMode)
 		if mode == "" {
 			denyDocker(c, "Missing RBAC context")
@@ -53,13 +55,15 @@ func DockerRBAC() gin.HandlerFunc {
 			denyDocker(c, "Invalid restricted Docker context")
 			return
 		}
+
 		allowed := splitDockerIDs(c.GetHeader(headerDockerRBACResourceIDs))
 		if handleRestrictedDockerCollection(c, allowed) {
 			return
 		}
 
 		path := strings.TrimPrefix(c.Request.URL.Path, "/api/v2/containers")
-		if path == "" && c.Request.Method == http.MethodPost {
+		switch {
+		case path == "" && c.Request.Method == http.MethodPost:
 			var req dto.ContainerOperate
 			if !bindReusableJSON(c, &req) {
 				return
@@ -74,8 +78,8 @@ func DockerRBAC() gin.HandlerFunc {
 			}
 			c.Next()
 			return
-		}
-		if path == "/update" {
+
+		case path == "/update":
 			var req dto.ContainerOperate
 			if !bindReusableJSON(c, &req) {
 				return
@@ -90,8 +94,8 @@ func DockerRBAC() gin.HandlerFunc {
 			}
 			c.Next()
 			return
-		}
-		if path == "/compose" && c.Request.Method == http.MethodPost {
+
+		case path == "/compose" && c.Request.Method == http.MethodPost:
 			var req dto.ComposeCreate
 			if !bindReusableJSON(c, &req) {
 				return
@@ -110,8 +114,8 @@ func DockerRBAC() gin.HandlerFunc {
 			}
 			c.Next()
 			return
-		}
-		if path == "/compose/test" {
+
+		case path == "/compose/test":
 			var req dto.ComposeCreate
 			if !bindReusableJSON(c, &req) {
 				return
@@ -126,8 +130,8 @@ func DockerRBAC() gin.HandlerFunc {
 			}
 			c.Next()
 			return
-		}
-		if path == "/compose/update" {
+
+		case path == "/compose/update":
 			var req dto.ComposeUpdate
 			if !bindReusableJSON(c, &req) {
 				return
@@ -187,7 +191,7 @@ func handleRestrictedDockerCollection(c *gin.Context, allowed []string) bool {
 		}
 		helper.SuccessWithData(c, items)
 		return true
-	case "/stats":
+	case "/list/stats":
 		items, err := service.ContainerStatsForRBAC(allowed)
 		if err != nil {
 			helper.InternalServer(c, err)
@@ -214,6 +218,10 @@ func handleRestrictedDockerCollection(c *gin.Context, allowed []string) bool {
 
 func resolveRestrictedDockerTargets(c *gin.Context) (string, []string, bool) {
 	path := strings.TrimPrefix(c.Request.URL.Path, "/api/v2/containers")
+	if strings.HasPrefix(path, "/stats/") && c.Request.Method == http.MethodGet {
+		return "container", []string{strings.TrimPrefix(path, "/stats/")}, true
+	}
+
 	body, payload, err := readDockerJSON(c)
 	if err != nil {
 		return "", nil, false
@@ -221,14 +229,13 @@ func resolveRestrictedDockerTargets(c *gin.Context) (string, []string, bool) {
 	if body != nil {
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	}
-	value := func(key string) string { valueString(payload[key]) }
-	values := func(key string) []string { valueStrings(payload[key]) }
+	value := func(key string) string { return valueString(payload[key]) }
+	values := func(key string) []string { return valueStrings(payload[key]) }
+
 	switch path {
-	case "/info", "/users":
+	case "/info", "/users", "/item/stats", "/clean/log":
 		return "container", []string{value("name")}, true
-	case "/operate":
-		return "container", values("names"), true
-	case "/upgrade":
+	case "/operate", "/upgrade":
 		return "container", values("names"), true
 	case "/rename":
 		return "container", []string{value("name")}, true
@@ -241,7 +248,11 @@ func resolveRestrictedDockerTargets(c *gin.Context) (string, []string, bool) {
 		if typeName == "container" || typeName == "compose" {
 			return typeName, []string{value("id")}, true
 		}
-	case "/compose/env", "/compose/logs", "/compose/operate", "/compose/pin":
+	case "/download/log":
+		if value("containerType") == "container" || value("containerType") == "" {
+			return "container", []string{value("container")}, true
+		}
+	case "/compose/env", "/compose/operate", "/compose/clean/log", "/compose/pin":
 		return "compose", []string{value("name")}, true
 	}
 	return "", nil, false
@@ -258,12 +269,11 @@ func validateRestrictedContainer(req dto.ContainerOperate, root string) error {
 		}
 	}
 	for _, port := range req.ExposedPorts {
-		if port.HostPort == "" {
-			continue
-		}
-		hostPort, err := strconv.Atoi(port.HostPort)
-		if err == nil && hostPort > 0 && hostPort < 1024 {
-			return fmt.Errorf("binding privileged host port %d is administrator-only", hostPort)
+		if port.HostPort != "" {
+			hostPort, err := strconv.Atoi(port.HostPort)
+			if err == nil && hostPort > 0 && hostPort < 1024 {
+				return fmt.Errorf("binding privileged host port %d is administrator-only", hostPort)
+			}
 		}
 		if port.HostIP != "" && net.ParseIP(port.HostIP) == nil {
 			return fmt.Errorf("invalid host IP %q", port.HostIP)
@@ -286,7 +296,6 @@ func validateRestrictedContainer(req dto.ContainerOperate, root string) error {
 				return errors.New("mounting existing named Docker volumes is administrator-only; use project Compose volumes")
 			}
 		case "tmpfs":
-			// tmpfs has no host source and stays inside the container boundary.
 		default:
 			return fmt.Errorf("volume type %q is not allowed for restricted containers", volume.Type)
 		}
@@ -307,11 +316,9 @@ func validateProjectHostPath(root, source string) error {
 	if err != nil || !rootInfo.IsDir() {
 		return errors.New("project rootPath must exist and be a directory")
 	}
-	sourceInfo, err := os.Stat(source)
-	if err != nil {
+	if _, err := os.Stat(source); err != nil {
 		return errors.New("bind source must already exist")
 	}
-	_ = sourceInfo
 	resolvedRoot, err := filepath.EvalSymlinks(filepath.Clean(root))
 	if err != nil {
 		return errors.New("cannot resolve project rootPath")
@@ -363,7 +370,8 @@ func validateRestrictedCompose(content, root string) error {
 			return fmt.Errorf("service %s: Linux capabilities/devices are administrator-only", name)
 		}
 		for _, key := range []string{"pid", "ipc", "uts", "cgroup", "userns_mode"} {
-			if valueString(serviceDef[key]) != "" && valueString(serviceDef[key]) != "private" {
+			value := valueString(serviceDef[key])
+			if value != "" && value != "private" {
 				return fmt.Errorf("service %s: %s namespace sharing is administrator-only", name, key)
 			}
 		}
@@ -422,7 +430,8 @@ func validateComposeTopLevelResources(document map[string]any, key string) (map[
 		if nonEmpty(definition["driver_opts"]) {
 			return nil, fmt.Errorf("Compose %s %s driver_opts are administrator-only", key, name)
 		}
-		if driver := strings.ToLower(valueString(definition["driver"])); driver != "" && driver != "local" && driver != "bridge" {
+		driver := strings.ToLower(valueString(definition["driver"]))
+		if driver != "" && driver != "local" && driver != "bridge" {
 			return nil, fmt.Errorf("Compose %s %s driver %q is not allowed", key, name, driver)
 		}
 	}

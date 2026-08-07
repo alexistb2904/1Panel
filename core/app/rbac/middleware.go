@@ -47,9 +47,7 @@ func IdentityMiddleware() gin.HandlerFunc {
 
 func CurrentUserID(c *gin.Context) (uint, bool) {
 	value, exists := c.Get(GinContextAccessUserIDKey)
-	if !exists {
-		return 0, false
-	}
+	if !exists { return 0, false }
 	id, ok := value.(uint)
 	return id, ok && id != 0
 }
@@ -62,7 +60,7 @@ func RequireGlobal(permissionCode string) gin.HandlerFunc {
 			deny(c, http.StatusPreconditionFailed, "RBAC identity is required")
 			return
 		}
-		allowed, err := NewEvaluator(global.DB).Can(userID, permissionCode, ResourceContext{})
+		allowed, err := NewEvaluator(global.DB).CanGlobal(userID, permissionCode)
 		if err != nil {
 			AuditDecision(c, userID, permissionCode, "deny", "global", "", 0, 0, "permission evaluation failed")
 			deny(c, http.StatusInternalServerError, "Unable to evaluate permission")
@@ -84,9 +82,7 @@ func accessUserForSession(sessionUser psession.SessionUser) (model.AccessUser, e
 		return user, err
 	}
 	id, err := strconv.ParseUint(sessionUser.ID, 10, 64)
-	if err != nil || id == 0 {
-		return user, gorm.ErrRecordNotFound
-	}
+	if err != nil || id == 0 { return user, gorm.ErrRecordNotFound }
 	err = global.DB.First(&user, uint(id)).Error
 	return user, err
 }

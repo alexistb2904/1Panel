@@ -11,7 +11,8 @@ import (
 
 // ListMyAccessProjects returns only projects the current user can actually view.
 // Global viewers (Administrator/Security Advisor) receive all projects; normal
-// staff receive project-scoped bindings only.
+// staff receive project-scoped bindings only. Filesystem roots are intentionally
+// not disclosed here; only the node attachment IDs are returned to scoped users.
 func ListMyAccessProjects(userID uint) ([]dto.AccessProjectInfo, error) {
 	evaluator := rbac.NewEvaluator(global.DB)
 	globalAccess, err := evaluator.CanGlobal(userID, "project.view")
@@ -53,9 +54,16 @@ func ListMyAccessProjects(userID uint) ([]dto.AccessProjectInfo, error) {
 			ID: project.ID, Name: project.Name, Slug: project.Slug,
 			Description: project.Description, Status: project.Status, CreatedAt: project.CreatedAt,
 		}
+		var projectNodes []model.AccessProjectNode
+		if err := global.DB.Where("project_id = ?", project.ID).Order("node_id ASC").Find(&projectNodes).Error; err != nil {
+			return nil, err
+		}
+		for _, node := range projectNodes {
+			item.Nodes = append(item.Nodes, dto.AccessProjectNodeInfo{NodeID: node.NodeID})
+		}
 		var resources []model.AccessProjectResource
 		if err := global.DB.Where("project_id = ?", project.ID).
-			Order("resource_type ASC, resource_id ASC").Find(&resources).Error; err != nil {
+			Order("node_id ASC, resource_type ASC, resource_id ASC").Find(&resources).Error; err != nil {
 			return nil, err
 		}
 		for _, resource := range resources {

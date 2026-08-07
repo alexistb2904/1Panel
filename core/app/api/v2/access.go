@@ -6,6 +6,7 @@ import (
 	"github.com/1Panel-dev/1Panel/core/app/api/v2/helper"
 	"github.com/1Panel-dev/1Panel/core/app/dto"
 	"github.com/1Panel-dev/1Panel/core/app/rbac"
+	"github.com/1Panel-dev/1Panel/core/app/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -64,6 +65,11 @@ func (b *BaseApi) ListAccessRoles(c *gin.Context) {
 func (b *BaseApi) ListAccessProjects(c *gin.Context) {
 	items, err := accessService.ListProjects()
 	if err != nil { helper.InternalServer(c, err); return }
+	security, err := service.ListAccessProjectSecurity()
+	if err != nil { helper.InternalServer(c, err); return }
+	roots := make(map[uint]string, len(security))
+	for _, item := range security { roots[item.ID] = item.RootPath }
+	for i := range items { items[i].RootPath = roots[items[i].ID] }
 	helper.SuccessWithData(c, items)
 }
 

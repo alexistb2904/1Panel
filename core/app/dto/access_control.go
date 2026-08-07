@@ -4,7 +4,7 @@ import "time"
 
 type AccessBindingInput struct {
 	RoleKey      string `json:"roleKey" validate:"required"`
-	ScopeType    string `json:"scopeType" validate:"required,oneof=global node project resource"`
+	ScopeType    string `json:"scopeType" validate:"required,oneof=global node project"`
 	ScopeID      string `json:"scopeId" validate:"required"`
 	ResourceType string `json:"resourceType"`
 	NodeID       uint   `json:"nodeId"`
@@ -120,4 +120,5 @@ type AccessProjectInfo struct {
 	Status      string                       `json:"status"`
 	CreatedAt   time.Time                    `json:"createdAt"`
 	Resources   []AccessProjectResourceInput `json:"resources"`
+	Nodes       []AccessProjectNodeInfo       `json:"nodes"`
 }

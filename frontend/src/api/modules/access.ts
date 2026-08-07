@@ -33,7 +33,7 @@ export const updateAccessProject = (params: {
 }) => http.post('/core/access/projects/update', params);
 export const replaceAccessProjectResources = (params: { id: number; resources: AccessControl.ProjectResource[] }) =>
     http.post('/core/access/projects/resources', params);
-export const updateAccessProjectRoot = (params: { id: number; rootPath: string }) =>
+export const updateAccessProjectRoot = (params: { id: number; nodeId: number; rootPath: string; enabled?: boolean }) =>
     http.post('/core/access/projects/security/root', params);
 
 export const listAccessNodes = () => http.get<AccessControl.Node[]>('/core/access/nodes');

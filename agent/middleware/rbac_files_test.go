@@ -41,6 +41,17 @@ func TestSecureCanonicalPathRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestRestrictedPolicyRejectsAnySymlinkComponent(t *testing.T) {
+	root := t.TempDir()
+	targetDir := filepath.Join(root, "real")
+	if err := os.MkdirAll(targetDir, 0755); err != nil { t.Fatal(err) }
+	link := filepath.Join(root, "inside-link")
+	if err := os.Symlink(targetDir, link); err != nil { t.Skipf("symlink unavailable: %v", err) }
+	hasSymlink, err := pathContainsSymlinkComponent(filepath.Join(link, "file.txt"))
+	if err != nil { t.Fatal(err) }
+	if !hasSymlink { t.Fatal("restricted file paths must reject symlink components even when they resolve inside the project") }
+}
+
 func TestDecodeRBACRootsSkipsSystemRoot(t *testing.T) {
 	data, err := json.Marshal([]string{"/"})
 	if err != nil { t.Fatal(err) }
@@ -63,6 +74,30 @@ func TestRestrictedFileOperationRejectsOwnerAndModeChanges(t *testing.T) {
 		c := restrictedFileContext(http.MethodPost, path, []byte(`{"path":"/tmp/project/file"}`))
 		if err := validateRestrictedFileOperation(c); err == nil {
 			t.Fatalf("%s must be administrator-only", path)
+		}
+	}
+}
+
+func TestRestrictedFileOperationRejectsRemoteFetchAndLongRunningPathTasks(t *testing.T) {
+	for _, path := range []string{
+		"/api/v2/files/wget", "/api/v2/files/wget/stop", "/api/v2/files/wget/process",
+		"/api/v2/files/compress", "/api/v2/files/compress/stop", "/api/v2/files/convert", "/api/v2/files/convert/log",
+	} {
+		c := restrictedFileContext(http.MethodPost, path, []byte(`{"path":"/tmp/project/file"}`))
+		if err := validateRestrictedFileOperation(c); err == nil {
+			t.Fatalf("%s must remain administrator-only for restricted identities", path)
+		}
+	}
+}
+
+func TestRestrictedFileOperationRejectsLinkCreation(t *testing.T) {
+	for _, body := range [][]byte{
+		[]byte(`{"path":"/tmp/project/link","isLink":true,"linkPath":"/tmp/project/source"}`),
+		[]byte(`{"path":"/tmp/project/link","isSymlink":true,"linkPath":"/tmp/project/source"}`),
+	} {
+		c := restrictedFileContext(http.MethodPost, "/api/v2/files", body)
+		if err := validateRestrictedFileOperation(c); err == nil {
+			t.Fatal("link creation must be administrator-only for scoped File Manager users")
 		}
 	}
 }

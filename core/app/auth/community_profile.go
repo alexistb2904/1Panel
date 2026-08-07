@@ -12,24 +12,16 @@ import (
 // disclosed merely because a user can authenticate to the panel.
 func GetSafeCurrentUserInfo(c *gin.Context) (*dto.CurrentUserInfo, error) {
 	info, err := GetCurrentUserInfoForContext(c)
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	user, err := currentAccessUser(c)
-	if err != nil {
-		return info, nil
-	}
+	if err != nil { return info, nil }
 	info.ID = user.ID
 
 	evaluator := rbac.NewEvaluator(global.DB)
-	canViewSettings, err := evaluator.Can(user.ID, "settings.view", rbac.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	canManageSettings, err := evaluator.Can(user.ID, "settings.manage", rbac.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
+	canViewSettings, err := evaluator.CanGlobal(user.ID, "settings.view")
+	if err != nil { return nil, err }
+	canManageSettings, err := evaluator.CanGlobal(user.ID, "settings.manage")
+	if err != nil { return nil, err }
 
 	if !canViewSettings {
 		info.ApiInterfaceStatus = ""
@@ -39,8 +31,6 @@ func GetSafeCurrentUserInfo(c *gin.Context) (*dto.CurrentUserInfo, error) {
 		info.ApiKeyValidityTime = 0
 		return info, nil
 	}
-	if !canManageSettings {
-		info.ApiKey = ""
-	}
+	if !canManageSettings { info.ApiKey = "" }
 	return info, nil
 }

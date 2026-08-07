@@ -29,20 +29,15 @@ func NewEvaluator(db *gorm.DB) *Evaluator {
 	return &Evaluator{db: db}
 }
 
-// Can evaluates one permission against one concrete authorization context.
-// Authorization is additive and default-deny: a request is allowed only when
-// at least one binding carrying the permission covers the requested scope.
 func (e *Evaluator) Can(userID uint, permissionCode string, resource ResourceContext) (bool, error) {
 	active, err := e.isActiveUser(userID)
 	if err != nil || !active {
 		return false, err
 	}
-
 	admin, err := e.isGlobalAdministrator(userID)
 	if err != nil || admin {
 		return admin, err
 	}
-
 	bindings, err := e.bindingsForPermission(userID, permissionCode)
 	if err != nil {
 		return false, err
@@ -59,9 +54,6 @@ func (e *Evaluator) Can(userID uint, permissionCode string, resource ResourceCon
 	return false, nil
 }
 
-// PermissionCodes returns the union of capabilities a user may exercise on at
-// least one scope. It is suitable for frontend navigation hints, but concrete
-// resource actions must still call Can server-side.
 func (e *Evaluator) PermissionCodes(userID uint) ([]string, error) {
 	active, err := e.isActiveUser(userID)
 	if err != nil || !active {
@@ -74,7 +66,6 @@ func (e *Evaluator) PermissionCodes(userID uint) ([]string, error) {
 	if admin {
 		return AllPermissionCodes(), nil
 	}
-
 	var codes []string
 	err = e.db.Table("rbac_permissions AS p").
 		Distinct("p.code").
@@ -89,9 +80,8 @@ func (e *Evaluator) PermissionCodes(userID uint) ([]string, error) {
 	return codes, nil
 }
 
-// AccessibleResourceIDs builds a server-side filter for list endpoints. All is
-// true only when a global/node binding legitimately covers every resource of
-// the requested type. Otherwise IDs contains explicit and project-derived IDs.
+// AccessibleResourceIDs always applies the requested node, including node 0
+// (local/master). Node 0 is a real authorization scope, never a wildcard.
 func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceType string, nodeID uint) (ResourceFilter, error) {
 	active, err := e.isActiveUser(userID)
 	if err != nil || !active {
@@ -104,7 +94,6 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 	if admin {
 		return ResourceFilter{All: true}, nil
 	}
-
 	bindings, err := e.bindingsForPermission(userID, permissionCode)
 	if err != nil {
 		return ResourceFilter{}, err
@@ -115,11 +104,13 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 		case model.AccessScopeGlobal:
 			return ResourceFilter{All: true}, nil
 		case model.AccessScopeNode:
-			if nodeID != 0 && binding.ScopeID == strconv.FormatUint(uint64(nodeID), 10) {
+			if binding.ScopeID == strconv.FormatUint(uint64(nodeID), 10) {
 				return ResourceFilter{All: true}, nil
 			}
 		case model.AccessScopeResource:
 			if binding.ResourceType == resourceType {
+				// Resource bindings are node-agnostic by schema; when the same stable
+				// ID exists on multiple nodes, project scope should be preferred.
 				ids[binding.ScopeID] = struct{}{}
 			}
 		case model.AccessScopeProject:
@@ -127,13 +118,10 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 			if err != nil {
 				continue
 			}
-			query := e.db.Model(&model.AccessProjectResource{}).
-				Where("project_id = ? AND resource_type = ?", uint(projectID), resourceType)
-			if nodeID != 0 {
-				query = query.Where("node_id = ?", nodeID)
-			}
 			var projectIDs []string
-			if err := query.Pluck("resource_id", &projectIDs).Error; err != nil {
+			if err := e.db.Model(&model.AccessProjectResource{}).
+				Where("project_id = ? AND resource_type = ? AND node_id = ?", uint(projectID), resourceType, nodeID).
+				Pluck("resource_id", &projectIDs).Error; err != nil {
 				return ResourceFilter{}, fmt.Errorf("resolve project resources: %w", err)
 			}
 			for _, id := range projectIDs {
@@ -141,7 +129,6 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 			}
 		}
 	}
-
 	result := ResourceFilter{IDs: make([]string, 0, len(ids))}
 	for id := range ids {
 		result.IDs = append(result.IDs, id)
@@ -168,7 +155,7 @@ func (e *Evaluator) bindingMatches(binding model.AccessRoleBinding, resource Res
 	case model.AccessScopeGlobal:
 		return true, nil
 	case model.AccessScopeNode:
-		return resource.NodeID != 0 && binding.ScopeID == strconv.FormatUint(uint64(resource.NodeID), 10), nil
+		return binding.ScopeID == strconv.FormatUint(uint64(resource.NodeID), 10), nil
 	case model.AccessScopeResource:
 		return resource.Type != "" && resource.ID != "" && binding.ResourceType == resource.Type && binding.ScopeID == resource.ID, nil
 	case model.AccessScopeProject:
@@ -186,12 +173,9 @@ func (e *Evaluator) bindingMatches(binding model.AccessRoleBinding, resource Res
 			return false, nil
 		}
 		var count int64
-		query := e.db.Model(&model.AccessProjectResource{}).
-			Where("project_id = ? AND resource_type = ? AND resource_id = ?", uint(projectID), resource.Type, resource.ID)
-		if resource.NodeID != 0 {
-			query = query.Where("node_id = ?", resource.NodeID)
-		}
-		if err := query.Count(&count).Error; err != nil {
+		if err := e.db.Model(&model.AccessProjectResource{}).
+			Where("project_id = ? AND resource_type = ? AND resource_id = ? AND node_id = ?", uint(projectID), resource.Type, resource.ID, resource.NodeID).
+			Count(&count).Error; err != nil {
 			return false, fmt.Errorf("check project resource membership: %w", err)
 		}
 		return count > 0, nil

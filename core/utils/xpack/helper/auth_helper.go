@@ -64,6 +64,7 @@ func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 	return []gin.HandlerFunc{
 		rbac.IdentityMiddleware(),
 		rbac.AgentResourceAuthorizationMiddleware(),
+		rbac.DockerAuthorizationMiddleware(),
 	}
 }
 

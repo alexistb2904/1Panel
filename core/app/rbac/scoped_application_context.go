@@ -211,7 +211,11 @@ func classifyRuntimeCoreRequest(method, path string, payload map[string]any) sco
 	case "/api/v2/runtimes/update":
 		permission, needsRoot = "runtime.edit", hasRuntimeHostPathMutation(payload)
 	case "/api/v2/runtimes/operate":
-		switch strings.ToLower(stringValue(payload["operate"])) {
+		operation := strings.ToLower(stringValue(payload["operate"]))
+		if operation == "" {
+			operation = strings.ToLower(stringValue(payload["operation"]))
+		}
+		switch operation {
 		case "start":
 			permission = "runtime.start"
 		case "stop":
@@ -282,8 +286,7 @@ func projectForScopedResource(nodeID uint, resourceType, resourceID string, expl
 	query := global.DB.Where("node_id = ? AND resource_type = ?", nodeID, resourceType)
 	if explicitProjectID != 0 {
 		query = query.Where("project_id = ?", explicitProjectID)
-	}
-	if resourceID != "" {
+	} else if resourceID != "" {
 		query = query.Where("resource_id = ?", resourceID)
 	}
 	if err := query.First(&membership).Error; err != nil {
@@ -336,7 +339,9 @@ func hasRuntimeHostPathMutation(payload map[string]any) bool {
 func databaseKey(kind, instance, name string) string {
 	return strings.ToLower(strings.TrimSpace(kind)) + ":" + strings.TrimSpace(instance) + ":" + strings.TrimSpace(name)
 }
+
 func runtimeKey(name string) string { return "runtime:" + strings.TrimSpace(name) }
+
 func normalizeDatabaseKind(kind string) string {
 	switch kind {
 	case "postgresql", "postgresql-cluster":

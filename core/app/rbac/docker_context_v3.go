@@ -12,7 +12,6 @@ import (
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 // DockerAuthorizationMiddlewareV3 extends V2 to registered remote nodes. The
@@ -36,7 +35,7 @@ func DockerAuthorizationMiddlewareV3() gin.HandlerFunc {
 			return
 		}
 		evaluator := NewEvaluator(global.DB)
-		admin, err := evaluator.Can(userID, "settings.manage", ResourceContext{})
+		admin, err := evaluator.CanGlobal(userID, "settings.manage")
 		if err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to evaluate Docker access")
 			return
@@ -69,15 +68,18 @@ func DockerAuthorizationMiddlewareV3() gin.HandlerFunc {
 				deny(c, http.StatusPreconditionFailed, err.Error())
 				return
 			}
+			resourceID := ctx.Targets[0]
+			if resourceID != "__compose_test__" {
+				if _, err := projectResourceOwnedBy(project.ID, nodeID, ctx.ResourceType, resourceID); err != nil {
+					deny(c, http.StatusPreconditionFailed, err.Error())
+					return
+				}
+			}
 			setAgentRBACHeaders(c, userID, ctx.Permission, ctx.ResourceType, ResourceFilter{IDs: ctx.Targets})
 			c.Request.Header.Set(HeaderRBACRestricted, "1")
 			c.Request.Header.Set(HeaderRBACProjectID, strconv.FormatUint(uint64(project.ID), 10))
 			c.Request.Header.Set(HeaderRBACProjectRoot, project.RootPath)
-			if err := reserveProjectDockerResourceAtNode(project.ID, nodeID, ctx.ResourceType, ctx.Targets[0]); err != nil {
-				deny(c, http.StatusPreconditionFailed, err.Error())
-				return
-			}
-			c.Next()
+			ContinueCreationWithOwnership(c, project.ID, nodeID, ctx.ResourceType, resourceID)
 			return
 		}
 		filter, err := evaluator.AccessibleResourceIDs(userID, ctx.Permission, ctx.ResourceType, nodeID)
@@ -114,23 +116,4 @@ func authorizeDockerProjectCreationAtNode(evaluator *Evaluator, userID, nodeID u
 		project.RootPath = root
 	}
 	return project, nil
-}
-
-func reserveProjectDockerResourceAtNode(projectID, nodeID uint, resourceType, resourceID string) error {
-	resourceID = strings.TrimSpace(resourceID)
-	if resourceID == "__compose_test__" {
-		return nil
-	}
-	var existing model.AccessProjectResource
-	err := global.DB.Where("node_id = ? AND resource_type = ? AND resource_id = ?", nodeID, resourceType, resourceID).First(&existing).Error
-	if err == nil {
-		if existing.ProjectID != projectID {
-			return errors.New("Docker resource is already owned by another project")
-		}
-		return nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	return global.DB.Create(&model.AccessProjectResource{ProjectID: projectID, NodeID: nodeID, ResourceType: resourceType, ResourceID: resourceID}).Error
 }

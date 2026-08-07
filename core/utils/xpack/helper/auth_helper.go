@@ -28,6 +28,7 @@ func (a *authHelper) CoreAPIAuthMiddleware() gin.HandlerFunc { return auth.APIAu
 
 func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 	return []gin.HandlerFunc{
+		rbac.ServiceAccountAuthMiddleware(),
 		rbac.IdentityMiddleware(),
 		rbac.MandatoryMFAGate(),
 		rbac.AgentResourceAuthorizationMiddleware(),

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/core/app/api/v2/helper"
+	"github.com/1Panel-dev/1Panel/core/app/rbac"
 	baseRepo "github.com/1Panel-dev/1Panel/core/app/repo"
 	"github.com/1Panel-dev/1Panel/core/cmd/server/res"
 	"github.com/1Panel-dev/1Panel/core/constant"
@@ -31,14 +32,7 @@ func Proxy() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		var nodeItem string
-		queryNode := c.Query("operateNode")
-		if queryNode != "" && queryNode != "undefined" {
-			nodeItem = queryNode
-		} else {
-			nodeItem = c.Request.Header.Get("CurrentNode")
-		}
-		currentNode, err := url.QueryUnescape(nodeItem)
+		currentNode, err := rbac.ResolveRequestNodeSelector(c)
 		if err != nil {
 			helper.ErrorWithDetail(c, http.StatusBadRequest, "ErrProxy", err)
 			return
@@ -57,12 +51,12 @@ func Proxy() gin.HandlerFunc {
 			c.Request.Header.Set("X-Panel-User", url.QueryEscape(userName))
 		}
 
-		if reqPath == "/api/v2/hosts/terminal/local" && (currentNode == "local" || len(currentNode) == 0) {
+		if reqPath == "/api/v2/hosts/terminal/local" && currentNode == "local" {
 			proxyLocalAgent(c)
 			return
 		}
 
-		if !strings.HasPrefix(reqPath, "/api/v2/core") && (currentNode == "local" || len(currentNode) == 0) {
+		if !strings.HasPrefix(reqPath, "/api/v2/core") && currentNode == "local" {
 			proxyLocalAgent(c)
 			return
 		}
@@ -73,7 +67,9 @@ func Proxy() gin.HandlerFunc {
 
 func isProxyAPIRequest(c *gin.Context) bool {
 	// Scoped service accounts are already authenticated and authorized by the
-	// RBAC stack and deliberately have no browser session cookie.
+	// RBAC stack and deliberately have no browser session cookie. Legacy API_AUTH
+	// remains an explicit break-glass credential and is disabled by the RBAC
+	// upgrade migration until an administrator consciously re-enables it.
 	return c.GetBool("API_AUTH") || c.GetBool("SCOPED_API_AUTH")
 }
 

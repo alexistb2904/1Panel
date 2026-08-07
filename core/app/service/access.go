@@ -43,7 +43,7 @@ func (s *AccessService) ListUsers() ([]dto.AccessUserInfo, error) {
 		return nil, err
 	}
 	type bindingRow struct {
-		ID, UserID, RoleID, NodeID                      uint
+		ID, UserID, RoleID, NodeID                         uint
 		RoleKey, RoleName, ScopeType, ScopeID, ResourceType string
 	}
 	var rows []bindingRow
@@ -176,7 +176,13 @@ func (s *AccessService) ListProjects() ([]dto.AccessProjectInfo, error) {
 	if err := global.DB.Order("name ASC").Find(&projects).Error; err != nil { return nil, err }
 	result := make([]dto.AccessProjectInfo, 0, len(projects))
 	for _, project := range projects {
-		item := dto.AccessProjectInfo{ID: project.ID, Name: project.Name, Slug: project.Slug, Description: project.Description, RootPath: project.RootPath, Status: project.Status, CreatedAt: project.CreatedAt}
+		item := dto.AccessProjectInfo{ID: project.ID, Name: project.Name, Slug: project.Slug, Description: project.Description, Status: project.Status, CreatedAt: project.CreatedAt}
+		var nodes []model.AccessProjectNode
+		if err := global.DB.Where("project_id = ?", project.ID).Order("node_id ASC").Find(&nodes).Error; err != nil { return nil, err }
+		for _, node := range nodes {
+			item.Nodes = append(item.Nodes, dto.AccessProjectNodeInfo{NodeID: node.NodeID, RootPath: node.RootPath})
+			if node.NodeID == 0 { item.RootPath = node.RootPath }
+		}
 		var resources []model.AccessProjectResource
 		if err := global.DB.Where("project_id = ?", project.ID).Order("node_id ASC, resource_type ASC, resource_id ASC").Find(&resources).Error; err != nil { return nil, err }
 		for _, resource := range resources {
@@ -188,8 +194,13 @@ func (s *AccessService) ListProjects() ([]dto.AccessProjectInfo, error) {
 }
 
 func (s *AccessService) CreateProject(req dto.AccessProjectCreate) error {
-	project := model.AccessProject{Name: strings.TrimSpace(req.Name), Slug: strings.ToLower(strings.TrimSpace(req.Slug)), Description: strings.TrimSpace(req.Description), Status: "active"}
-	return global.DB.Create(&project).Error
+	root, err := normalizeProjectRootPathForNode(0, req.RootPath)
+	if err != nil { return err }
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		project := model.AccessProject{Name: strings.TrimSpace(req.Name), Slug: strings.ToLower(strings.TrimSpace(req.Slug)), Description: strings.TrimSpace(req.Description), RootPath: root, Status: "active"}
+		if err := tx.Create(&project).Error; err != nil { return err }
+		return tx.Create(&model.AccessProjectNode{ProjectID: project.ID, NodeID: 0, RootPath: root}).Error
+	})
 }
 
 func (s *AccessService) UpdateProject(req dto.AccessProjectUpdate) error {
@@ -212,6 +223,10 @@ func (s *AccessService) ReplaceProjectResources(req dto.AccessProjectResourcesUp
 					return fmt.Errorf("project resource references unknown or disabled node %d", input.NodeID)
 				}
 			}
+			var projectNodeCount int64
+			if err := tx.Model(&model.AccessProjectNode{}).Where("project_id = ? AND node_id = ?", req.ID, input.NodeID).Count(&projectNodeCount).Error; err != nil { return err }
+			if projectNodeCount == 0 { return fmt.Errorf("project is not attached to node %d", input.NodeID) }
+
 			key := fmt.Sprintf("%d:%s:%s", input.NodeID, resourceType, resourceID)
 			if _, exists := seen[key]; exists { continue }
 			seen[key] = struct{}{}
@@ -249,11 +264,11 @@ func validateBindings(tx *gorm.DB, inputs []dto.AccessBindingInput) ([]model.Acc
 
 func validateRoleScope(tx *gorm.DB, roleKey, scopeType, scopeID, resourceType string, nodeID uint) error {
 	allowed := map[string]map[string]bool{
-		rbac.RoleAdministrator: {model.AccessScopeGlobal: true},
-		rbac.RoleDeveloper: {model.AccessScopeProject: true, model.AccessScopeResource: true},
-		rbac.RoleSecurityAdvisor: {model.AccessScopeGlobal: true, model.AccessScopeNode: true, model.AccessScopeProject: true, model.AccessScopeResource: true},
-		rbac.RoleUser: {model.AccessScopeProject: true, model.AccessScopeResource: true},
-		rbac.RoleVisitor: {model.AccessScopeProject: true, model.AccessScopeResource: true},
+		rbac.RoleAdministrator:   {model.AccessScopeGlobal: true},
+		rbac.RoleDeveloper:       {model.AccessScopeProject: true},
+		rbac.RoleSecurityAdvisor: {model.AccessScopeGlobal: true, model.AccessScopeNode: true, model.AccessScopeProject: true},
+		rbac.RoleUser:            {model.AccessScopeProject: true},
+		rbac.RoleVisitor:         {model.AccessScopeProject: true},
 	}
 	roleScopes, ok := allowed[roleKey]
 	if !ok || !roleScopes[scopeType] { return fmt.Errorf("role %s cannot be assigned at %s scope", roleKey, scopeType) }
@@ -273,11 +288,7 @@ func validateRoleScope(tx *gorm.DB, roleKey, scopeType, scopeID, resourceType st
 		var count int64
 		if err := tx.Model(&model.AccessProject{}).Where("id = ?", uint(projectID)).Count(&count).Error; err != nil || count == 0 { return errors.New("project scope references an unknown project") }
 	case model.AccessScopeResource:
-		if scopeID == "" || resourceType == "" { return errors.New("resource scope requires scopeId and resourceType") }
-		if nodeID > 0 {
-			var count int64
-			if err := tx.Model(&model.AccessNodeScope{}).Where("id = ? AND status = ?", nodeID, model.AccessUserStatusActive).Count(&count).Error; err != nil || count == 0 { return errors.New("resource scope references an unknown or disabled node") }
-		}
+		return errors.New("direct resource scope is disabled because stable resource names are not immutable authorization identities; assign the containing project instead")
 	default:
 		return errors.New("unsupported scope type")
 	}

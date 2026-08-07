@@ -1,10 +1,13 @@
 package rbac
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
 )
@@ -21,14 +24,6 @@ const (
 	RBACModeNone = "none"
 )
 
-// AgentResourceAuthorizationMiddleware is the policy decision point for
-// resource APIs proxied from Core to Agent. Core always overwrites RBAC headers
-// supplied by the browser, so Agent can treat them as authorization context
-// only when the request came through the trusted Core transport.
-//
-// The first protected vertical slice is Websites. Unknown website endpoints
-// are deliberately default-denied to non-administrators until a policy is
-// explicitly assigned.
 func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clearAgentRBACHeaders(c)
@@ -36,17 +31,11 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-
-		// The legacy global API key remains a platform-level credential. It is
-		// admin-managed and therefore intentionally receives unrestricted agent
-		// scope for compatibility. Scoped service accounts will replace this in
-		// a later phase.
 		if c.GetBool("API_AUTH") || c.GetBool("LOCAL_REQUEST") {
 			setAgentRBACHeaders(c, 0, "platform.internal", "website", ResourceFilter{All: true})
 			c.Next()
 			return
 		}
-
 		userID, ok := CurrentUserID(c)
 		if !ok {
 			deny(c, http.StatusPreconditionFailed, "RBAC identity is required for website access")
@@ -63,26 +52,52 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		nodeID, _, err := ResolveRequestNodeID(c)
+		if err != nil {
+			deny(c, http.StatusPreconditionFailed, err.Error())
+			return
+		}
+
+		if c.Request.Method == http.MethodPost && strings.TrimSuffix(c.Request.URL.Path, "/") == "/api/v2/websites" {
+			body, payload, err := readJSONBody(c)
+			if err != nil {
+				deny(c, http.StatusBadRequest, "Unable to parse website creation target")
+				return
+			}
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+			projectID := projectIDFromPayload(payload)
+			alias := strings.TrimSpace(stringValue(payload["alias"]))
+			resourceID := "website:" + alias
+			if projectID == 0 || alias == "" {
+				deny(c, http.StatusPreconditionFailed, "projectID and website alias are required")
+				return
+			}
+			allowed, err := evaluator.Can(userID, "website.create", ResourceContext{NodeID: nodeID, ProjectID: projectID, Type: "project", ID: strconv.FormatUint(uint64(projectID), 10)})
+			if err != nil || !allowed {
+				deny(c, http.StatusPreconditionFailed, "Website creation is not allowed in this project")
+				return
+			}
+			var project model.AccessProject
+			if err := global.DB.First(&project, projectID).Error; err != nil || project.Status != "active" {
+				deny(c, http.StatusPreconditionFailed, "Project is not active")
+				return
+			}
+			if err := reserveProjectResource(projectID, nodeID, "website", resourceID); err != nil {
+				deny(c, http.StatusPreconditionFailed, err.Error())
+				return
+			}
+			setAgentRBACHeaders(c, userID, "website.create", "website", ResourceFilter{IDs: []string{resourceID}})
+			setProjectTransportHeaders(c, project)
+			c.Next()
+			return
+		}
 
 		permission, ok := websitePermissionForRequest(c.Request.Method, c.Request.URL.Path)
 		if !ok {
 			deny(c, http.StatusPreconditionFailed, "This website operation is restricted to administrators until an explicit RBAC policy is defined")
 			return
 		}
-
-		// Node 0 is the local/master agent. Remote-node identity is intentionally
-		// default-denied for non-admin users until the multi-node provider exposes
-		// a stable Community node identifier mapping.
-		currentNode := c.Query("operateNode")
-		if currentNode == "" || currentNode == "undefined" {
-			currentNode = c.GetHeader("CurrentNode")
-		}
-		if currentNode != "" && currentNode != "local" {
-			deny(c, http.StatusPreconditionFailed, "Scoped access to remote nodes is not enabled yet")
-			return
-		}
-
-		filter, err := evaluator.AccessibleResourceIDs(userID, permission, "website", 0)
+		filter, err := evaluator.AccessibleResourceIDs(userID, permission, "website", nodeID)
 		if err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to resolve website scope")
 			return
@@ -93,7 +108,7 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 }
 
 func clearAgentRBACHeaders(c *gin.Context) {
-	for _, key := range []string{HeaderRBACMode, HeaderRBACPermission, HeaderRBACResourceType, HeaderRBACResourceIDs, HeaderRBACUserID} {
+	for _, key := range []string{HeaderRBACMode, HeaderRBACPermission, HeaderRBACResourceType, HeaderRBACResourceIDs, HeaderRBACUserID, HeaderRBACAllowedRoots, HeaderRBACProjectID, HeaderRBACProjectRoot, HeaderRBACRestricted} {
 		c.Request.Header.Del(key)
 	}
 }
@@ -121,12 +136,8 @@ func setAgentRBACHeaders(c *gin.Context, userID uint, permission, resourceType s
 func websitePermissionForRequest(method, fullPath string) (string, bool) {
 	path := strings.TrimPrefix(fullPath, "/api/v2/websites")
 	if path == "" || path == "/" {
-		// Creating a website needs project-aware ownership assignment. Admins are
-		// handled before this switch; non-admin creation stays denied for now.
 		return "", false
 	}
-
-	// Collection endpoints.
 	switch path {
 	case "/search", "/options":
 		if method == http.MethodPost {
@@ -172,8 +183,6 @@ func websitePermissionForRequest(method, fullPath string) (string, bool) {
 	case "/exec/composer":
 		return "website.shell", method == http.MethodPost
 	}
-
-	// Path-scoped endpoints with the website ID in the URL.
 	segments := splitPath(path)
 	if len(segments) == 0 {
 		return "", false
@@ -193,7 +202,6 @@ func websitePermissionForRequest(method, fullPath string) (string, bool) {
 	if segments[0] == "resource" && len(segments) == 2 && method == http.MethodGet {
 		return "website.view", true
 	}
-
 	if _, err := strconv.ParseUint(segments[0], 10, 64); err == nil {
 		if len(segments) == 1 && method == http.MethodGet {
 			return "website.view", true
@@ -213,7 +221,6 @@ func websitePermissionForRequest(method, fullPath string) (string, bool) {
 			return "website.config.view", true
 		}
 	}
-
 	return "", false
 }
 

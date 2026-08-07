@@ -3,7 +3,6 @@ package rbac
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -12,7 +11,6 @@ import (
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type scopedApplicationRequest struct {
@@ -50,7 +48,7 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 			return
 		}
 		evaluator := NewEvaluator(global.DB)
-		admin, err := evaluator.Can(userID, "settings.manage", ResourceContext{})
+		admin, err := evaluator.CanGlobal(userID, "settings.manage")
 		if err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to evaluate scoped application access")
 			return
@@ -83,13 +81,13 @@ func ScopedApplicationAuthorizationMiddleware() gin.HandlerFunc {
 				deny(c, http.StatusPreconditionFailed, err.Error())
 				return
 			}
-			if err := reserveProjectResource(project.ID, nodeID, req.ResourceType, req.ResourceID); err != nil {
+			if _, err := projectResourceOwnedBy(project.ID, nodeID, req.ResourceType, req.ResourceID); err != nil {
 				deny(c, http.StatusPreconditionFailed, err.Error())
 				return
 			}
 			setAgentRBACHeaders(c, userID, req.Permission, req.ResourceType, ResourceFilter{IDs: []string{req.ResourceID}})
 			setProjectTransportHeaders(c, project)
-			c.Next()
+			ContinueCreationWithOwnership(c, project.ID, nodeID, req.ResourceType, req.ResourceID)
 			return
 		}
 		filter, err := evaluator.AccessibleResourceIDs(userID, req.Permission, req.ResourceType, nodeID)
@@ -263,22 +261,6 @@ func authorizeProjectResourceCreation(evaluator *Evaluator, userID, nodeID uint,
 		return model.AccessProject{}, errors.New("project is not active")
 	}
 	return project, nil
-}
-
-func reserveProjectResource(projectID, nodeID uint, resourceType, resourceID string) error {
-	resourceID = strings.TrimSpace(resourceID)
-	var existing model.AccessProjectResource
-	err := global.DB.Where("node_id = ? AND resource_type = ? AND resource_id = ?", nodeID, resourceType, resourceID).First(&existing).Error
-	if err == nil {
-		if existing.ProjectID != projectID {
-			return fmt.Errorf("%s %s is already owned by another project", resourceType, resourceID)
-		}
-		return nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	return global.DB.Create(&model.AccessProjectResource{ProjectID: projectID, NodeID: nodeID, ResourceType: resourceType, ResourceID: resourceID}).Error
 }
 
 func projectForScopedResource(nodeID uint, resourceType, resourceID string, explicitProjectID uint) (model.AccessProject, error) {

@@ -33,7 +33,7 @@ func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 		rbac.MandatoryMFAGate(),
 		rbac.AgentResourceAuthorizationMiddleware(),
 		rbac.ScopedApplicationAuthorizationMiddleware(),
-		rbac.DockerAuthorizationMiddlewareV2(),
+		rbac.DockerAuthorizationMiddlewareV3(),
 		rbac.FileAuthorizationMiddleware(),
 	}
 }

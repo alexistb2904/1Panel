@@ -44,9 +44,7 @@ func Proxy() gin.HandlerFunc {
 			return
 		}
 
-		// Scoped service accounts are already authenticated and authorized by
-		// the RBAC stack and deliberately have no browser session cookie.
-		apiReq := c.GetBool("API_AUTH") || c.GetBool("SCOPED_API_AUTH")
+		apiReq := isProxyAPIRequest(c)
 
 		if !apiReq && !isLocalAPI(reqPath) && !middleware.IsPublicFileShareAPI(reqPath) && !checkSession(c) {
 			data, _ := res.ErrorMsg.ReadFile("html/401.html")
@@ -71,6 +69,12 @@ func Proxy() gin.HandlerFunc {
 		xpack.MultiNodeProvider.Proxy(c, currentNode)
 		c.Abort()
 	}
+}
+
+func isProxyAPIRequest(c *gin.Context) bool {
+	// Scoped service accounts are already authenticated and authorized by the
+	// RBAC stack and deliberately have no browser session cookie.
+	return c.GetBool("API_AUTH") || c.GetBool("SCOPED_API_AUTH")
 }
 
 func proxyLocalAgent(c *gin.Context) {

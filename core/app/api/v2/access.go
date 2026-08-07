@@ -2,14 +2,10 @@ package v2
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/1Panel-dev/1Panel/core/app/api/v2/helper"
 	"github.com/1Panel-dev/1Panel/core/app/dto"
-	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/app/rbac"
-	"github.com/1Panel-dev/1Panel/core/app/service"
-	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
 )
 
@@ -68,11 +64,6 @@ func (b *BaseApi) ListAccessRoles(c *gin.Context) {
 func (b *BaseApi) ListAccessProjects(c *gin.Context) {
 	items, err := accessService.ListProjects()
 	if err != nil { helper.InternalServer(c, err); return }
-	security, err := service.ListAccessProjectSecurity()
-	if err != nil { helper.InternalServer(c, err); return }
-	roots := make(map[uint]string, len(security))
-	for _, item := range security { roots[item.ID] = item.RootPath }
-	for i := range items { items[i].RootPath = roots[items[i].ID] }
 	helper.SuccessWithData(c, items)
 }
 
@@ -80,18 +71,7 @@ func (b *BaseApi) CreateAccessProject(c *gin.Context) {
 	var req dto.AccessProjectCreate
 	if err := helper.CheckBindAndValidate(&req, c); err != nil { return }
 	if err := accessService.CreateProject(req); err != nil { helper.BadRequest(c, err); return }
-	if strings.TrimSpace(req.RootPath) != "" {
-		var project model.AccessProject
-		if err := global.DB.Where("slug = ?", strings.ToLower(strings.TrimSpace(req.Slug))).First(&project).Error; err != nil {
-			helper.InternalServer(c, err); return
-		}
-		if err := service.UpdateAccessProjectRoot(dto.AccessProjectRootUpdate{ID: project.ID, RootPath: req.RootPath}); err != nil {
-			_ = global.DB.Delete(&project).Error
-			helper.BadRequest(c, err); return
-		}
-		rbac.AuditMutation(c, "rbac.project.root_path.update", "project", strconv.FormatUint(uint64(project.ID), 10), map[string]any{"rootPath": req.RootPath})
-	}
-	rbac.AuditMutation(c, "rbac.project.create", "project", req.Slug, map[string]any{"name": req.Name})
+	rbac.AuditMutation(c, "rbac.project.create", "project", req.Slug, map[string]any{"name": req.Name, "localRootPath": req.RootPath})
 	helper.Success(c)
 }
 

@@ -2,12 +2,14 @@ import type { AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 import http from '@/api';
 import { GlobalStore } from '@/store';
 
-const scopedCreatePaths = new Set([
+const scopedProjectPaths = new Set([
     '/websites',
     '/databases',
     '/databases/pg',
     '/databases/mongodb',
     '/runtimes',
+    '/runtimes/update',
+    '/runtimes/php/container/update',
     '/containers',
     '/containers/compose',
 ]);
@@ -33,7 +35,7 @@ export const setActiveProjectID = (projectID: number, node?: string) => {
 export const installProjectScopeInterceptor = () => {
     http.service.interceptors.request.use((config: AxiosRequestConfig) => {
         const method = (config.method || 'get').toUpperCase();
-        if (method !== 'POST' || !config.url || !scopedCreatePaths.has(config.url)) {
+        if (method !== 'POST' || !config.url || !scopedProjectPaths.has(config.url)) {
             return config as InternalAxiosRequestConfig;
         }
         const projectID = getActiveProjectID();

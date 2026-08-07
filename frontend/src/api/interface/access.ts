@@ -54,6 +54,8 @@ export namespace AccessControl {
 
     export interface ProjectNode {
         nodeId: number;
+        name: string;
+        externalKey: string;
         rootPath: string;
     }
 

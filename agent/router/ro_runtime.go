@@ -2,6 +2,7 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/agent/app/api/v2"
+	"github.com/1Panel-dev/1Panel/agent/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -9,7 +10,7 @@ type RuntimeRouter struct {
 }
 
 func (r *RuntimeRouter) InitRouter(Router *gin.RouterGroup) {
-	groupRouter := Router.Group("runtimes")
+	groupRouter := Router.Group("runtimes").Use(middleware.RuntimeRBAC())
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{

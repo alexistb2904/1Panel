@@ -28,6 +28,8 @@ func (b *BaseApi) UpdateAccessProjectRoot(c *gin.Context) {
 		helper.BadRequest(c, err)
 		return
 	}
-	rbac.AuditMutation(c, "rbac.project.root_path.update", "project", strconv.FormatUint(uint64(req.ID), 10), map[string]any{"rootPath": req.RootPath})
+	enabled := true
+	if req.Enabled != nil { enabled = *req.Enabled }
+	rbac.AuditMutation(c, "rbac.project.node_boundary.update", "project", strconv.FormatUint(uint64(req.ID), 10), map[string]any{"nodeId": req.NodeID, "rootPath": req.RootPath, "enabled": enabled})
 	helper.Success(c)
 }

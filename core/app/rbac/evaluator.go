@@ -95,7 +95,7 @@ func (e *Evaluator) PermissionCodes(userID uint) ([]string, error) {
 		Distinct("p.code").
 		Joins("JOIN rbac_role_permissions rp ON rp.permission_id = p.id").
 		Joins("JOIN rbac_role_bindings rb ON rb.role_id = rp.role_id").
-		Where("rb.user_id = ?", userID).
+		Where("rb.user_id = ? AND rb.scope_type <> ?", userID, model.AccessScopeResource).
 		Order("p.code ASC").
 		Pluck("p.code", &codes).Error
 	if err != nil {
@@ -132,12 +132,20 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 				return ResourceFilter{All: true}, nil
 			}
 		case model.AccessScopeResource:
-			if binding.ResourceType == resourceType && binding.NodeID == nodeID {
-				ids[binding.ScopeID] = struct{}{}
-			}
+			// Direct resource scopes are intentionally disabled. Human-readable
+			// stable names can be deleted and recreated and are therefore not an
+			// immutable authorization identity.
+			continue
 		case model.AccessScopeProject:
 			projectID, err := strconv.ParseUint(binding.ScopeID, 10, 64)
+			if err != nil || projectID == 0 {
+				continue
+			}
+			attached, err := e.projectAttachedToNode(uint(projectID), nodeID)
 			if err != nil {
+				return ResourceFilter{}, err
+			}
+			if !attached {
 				continue
 			}
 			var projectIDs []string
@@ -172,6 +180,20 @@ func (e *Evaluator) bindingsForPermission(userID uint, permissionCode string) ([
 	return bindings, nil
 }
 
+func (e *Evaluator) projectAttachedToNode(projectID, nodeID uint) (bool, error) {
+	if projectID == 0 {
+		return false, nil
+	}
+	var count int64
+	if err := e.db.Model(&model.AccessProjectNode{}).
+		Joins("JOIN rbac_projects p ON p.id = rbac_project_nodes.project_id").
+		Where("rbac_project_nodes.project_id = ? AND rbac_project_nodes.node_id = ? AND p.status = ?", projectID, nodeID, "active").
+		Count(&count).Error; err != nil {
+		return false, fmt.Errorf("check project node attachment: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (e *Evaluator) bindingMatches(binding model.AccessRoleBinding, resource ResourceContext) (bool, error) {
 	switch binding.ScopeType {
 	case model.AccessScopeGlobal:
@@ -179,19 +201,23 @@ func (e *Evaluator) bindingMatches(binding model.AccessRoleBinding, resource Res
 	case model.AccessScopeNode:
 		return binding.ScopeID == strconv.FormatUint(uint64(resource.NodeID), 10), nil
 	case model.AccessScopeResource:
-		return resource.Type != "" && resource.ID != "" && binding.ResourceType == resource.Type && binding.ScopeID == resource.ID && binding.NodeID == resource.NodeID, nil
+		return false, nil
 	case model.AccessScopeProject:
+		projectID, err := strconv.ParseUint(binding.ScopeID, 10, 64)
+		if err != nil || projectID == 0 {
+			return false, nil
+		}
+		attached, err := e.projectAttachedToNode(uint(projectID), resource.NodeID)
+		if err != nil || !attached {
+			return false, err
+		}
 		if resource.Type == "project" && resource.ID == binding.ScopeID {
 			return true, nil
 		}
 		if resource.ProjectID != 0 {
-			return binding.ScopeID == strconv.FormatUint(uint64(resource.ProjectID), 10), nil
+			return uint(projectID) == resource.ProjectID, nil
 		}
 		if resource.Type == "" || resource.ID == "" {
-			return false, nil
-		}
-		projectID, err := strconv.ParseUint(binding.ScopeID, 10, 64)
-		if err != nil {
 			return false, nil
 		}
 		var count int64

@@ -30,7 +30,7 @@ func FileAuthorizationMiddleware() gin.HandlerFunc {
 			return
 		}
 		evaluator := NewEvaluator(global.DB)
-		admin, err := evaluator.Can(userID, "settings.manage", ResourceContext{})
+		admin, err := evaluator.CanGlobal(userID, "settings.manage")
 		if err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to evaluate file access")
 			return
@@ -106,9 +106,9 @@ func filePermissionForRequest(method, fullPath string) (string, bool) {
 		"/batch/check": true, "/chunkdownload": true, "/size": true, "/depth/size": true,
 	}
 	write := map[string]bool{
-		"": true, "/mode": true, "/owner": true, "/compress": true, "/decompress": true,
-		"/save": true, "/upload": true, "/chunkupload": true, "/rename": true, "/wget": true,
-		"/move": true, "/batch/role": true, "/remark": true, "/convert": true,
+		"": true, "/compress": true, "/save": true, "/upload": true,
+		"/chunkupload": true, "/rename": true, "/wget": true, "/move": true,
+		"/remark": true, "/convert": true,
 	}
 	remove := map[string]bool{"/del": true, "/batch/del": true}
 	if read[path] { return "website.files.read", true }

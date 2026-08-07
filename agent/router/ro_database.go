@@ -2,13 +2,14 @@ package router
 
 import (
 	v2 "github.com/1Panel-dev/1Panel/agent/app/api/v2"
+	"github.com/1Panel-dev/1Panel/agent/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 type DatabaseRouter struct{}
 
 func (s *DatabaseRouter) InitRouter(Router *gin.RouterGroup) {
-	cmdRouter := Router.Group("databases")
+	cmdRouter := Router.Group("databases").Use(middleware.DatabaseRBAC())
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		cmdRouter.POST("/common/info", baseApi.LoadDBBaseInfo)

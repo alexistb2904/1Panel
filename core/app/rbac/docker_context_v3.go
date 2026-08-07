@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -76,9 +75,10 @@ func DockerAuthorizationMiddlewareV3() gin.HandlerFunc {
 				}
 			}
 			setAgentRBACHeaders(c, userID, ctx.Permission, ctx.ResourceType, ResourceFilter{IDs: ctx.Targets})
-			c.Request.Header.Set(HeaderRBACRestricted, "1")
-			c.Request.Header.Set(HeaderRBACProjectID, strconv.FormatUint(uint64(project.ID), 10))
-			c.Request.Header.Set(HeaderRBACProjectRoot, project.RootPath)
+			if err := setProjectTransportHeaders(c, project, nodeID); err != nil {
+				deny(c, http.StatusPreconditionFailed, err.Error())
+				return
+			}
 			ContinueCreationWithOwnership(c, project.ID, nodeID, ctx.ResourceType, resourceID)
 			return
 		}
@@ -99,7 +99,7 @@ func authorizeDockerProjectCreationAtNode(evaluator *Evaluator, userID, nodeID u
 	}
 	allowed, err := evaluator.Can(userID, ctx.Permission, ResourceContext{NodeID: nodeID, ProjectID: ctx.ProjectID, Type: "project", ID: strconv.FormatUint(uint64(ctx.ProjectID), 10)})
 	if err != nil || !allowed {
-		return model.AccessProject{}, errors.New("Docker creation is not allowed for this project")
+		return model.AccessProject{}, errors.New("Docker creation is not allowed for this project on the selected node")
 	}
 	var project model.AccessProject
 	if err := global.DB.First(&project, ctx.ProjectID).Error; err != nil {
@@ -107,13 +107,6 @@ func authorizeDockerProjectCreationAtNode(evaluator *Evaluator, userID, nodeID u
 	}
 	if project.Status != "active" {
 		return model.AccessProject{}, errors.New("project is not active")
-	}
-	if project.RootPath != "" {
-		root, err := filepath.Abs(filepath.Clean(project.RootPath))
-		if err != nil || !filepath.IsAbs(root) || root == string(filepath.Separator) {
-			return model.AccessProject{}, errors.New("project rootPath is invalid")
-		}
-		project.RootPath = root
 	}
 	return project, nil
 }

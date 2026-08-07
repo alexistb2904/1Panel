@@ -39,3 +39,16 @@ func TestRestrictedRuntimePathsRejectSymlinkEscape(t *testing.T) {
 		t.Fatal("symlink runtime escape must be rejected")
 	}
 }
+
+func TestRestrictedRuntimePathsRejectSymlinkEscapeWithNonexistentSuffix(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	target := filepath.Join(link, "new-dir", "app")
+	if err := validateRestrictedRuntimePaths(map[string]any{"codeDir": target}, root); err == nil {
+		t.Fatal("symlink escape through a nonexistent child must be rejected")
+	}
+}

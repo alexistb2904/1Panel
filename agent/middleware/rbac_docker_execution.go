@@ -35,9 +35,6 @@ func DockerRestrictedExecution() gin.HandlerFunc {
 			var req dto.ContainerOperate
 			if !bindReusableJSON(c, &req) { return }
 			if err := validateRestrictedContainerSecurityExtras(req); err != nil { denyDocker(c, err.Error()); return }
-			// Restricted creates must be synchronous. Core's two-phase ownership
-			// may only activate after the container has actually been created and
-			// started, never merely after a task has been queued.
 			if err := service.NewIContainerService().ContainerCreate(req, false); err != nil {
 				helper.InternalServer(c, err)
 				c.Abort()
@@ -121,7 +118,7 @@ func validateRestrictedComposeExtraPolicy(content string) error {
 	for serviceName, raw := range services {
 		serviceDef, ok := raw.(map[string]any)
 		if !ok { return fmt.Errorf("service %s has an invalid definition", serviceName) }
-		for _, key := range []string{"cgroup_parent", "runtime", "isolation", "storage_opt", "develop"} {
+		for _, key := range []string{"cgroup_parent", "runtime", "isolation", "storage_opt", "develop", "sysctls"} {
 			if nonEmpty(serviceDef[key]) { return fmt.Errorf("service %s: %s is administrator-only on shared hosts", serviceName, key) }
 		}
 		if err := validateRestrictedComposePorts(serviceName, serviceDef["ports"]); err != nil { return err }

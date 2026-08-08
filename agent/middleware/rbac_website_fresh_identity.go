@@ -7,13 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
-
-var scopedWebsiteAliasPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // WebsiteFreshIdentityGuard prevents a newly owned website:<alias> capability
 // from adopting filesystem state left behind by an older website with the same

@@ -20,13 +20,21 @@ import (
 func PasswordExpired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !strings.HasPrefix(c.Request.URL.Path, "/api/v2/") {
-			c.Next(); return
+			c.Next()
+			return
 		}
-		if c.GetBool("LOCAL_REQUEST") || c.GetBool("SCOPED_API_AUTH") {
-			c.Next(); return
+		// Service accounts are machine principals and have no browser session or
+		// interactive password-expiry state. This middleware runs before the RBAC
+		// provider globally, so recognize only the exact generated token shape
+		// here; the credential itself is authenticated later by RBAC and invalid
+		// tokens remain fail-closed.
+		if c.GetBool("LOCAL_REQUEST") || c.GetBool("SCOPED_API_AUTH") || IsScopedServiceTokenRequestAuthorization(c.GetHeader("Authorization")) {
+			c.Next()
+			return
 		}
 		if IsPublicFileShareAPI(c.Request.URL.Path) {
-			c.Next(); return
+			c.Next()
+			return
 		}
 		if strings.HasPrefix(c.Request.URL.Path, "/api/v2/core/auth") ||
 			c.Request.URL.Path == "/api/v2/core/settings/search" ||
@@ -37,10 +45,12 @@ func PasswordExpired() gin.HandlerFunc {
 			c.Request.URL.Path == "/api/v2/core/enterprise/licenses/info" ||
 			c.Request.URL.Path == "/api/v2/core/enterprise/licenses/status" ||
 			c.Request.URL.Path == "/api/v2/core/enterprise/licenses/upload" {
-			c.Next(); return
+			c.Next()
+			return
 		}
 		if c.GetBool("API_AUTH") {
-			c.Next(); return
+			c.Next()
+			return
 		}
 		var err error
 		sessionUser, ok := c.Get(psessionUtils.GinContextSessionUserKey)
@@ -51,25 +61,51 @@ func PasswordExpired() gin.HandlerFunc {
 		if err != nil {
 			errItem := err.Error()
 			if errItem == "ErrSessionDataFormat" || errItem == "ErrSessionDataNotFound" {
-				helper.BadAuth(c, "ErrNotLogin", buserr.New(errItem)); return
+				helper.BadAuth(c, "ErrNotLogin", buserr.New(errItem))
+				return
 			}
-			helper.BadAuth(c, "ErrNotLogin", err); return
+			helper.BadAuth(c, "ErrNotLogin", err)
+			return
 		}
 		c.Set(psessionUtils.GinContextSessionUserKey, psession)
-		if len(psession.Name) == 0 { helper.BadAuth(c, "ErrNotLogin", err); return }
+		if len(psession.Name) == 0 {
+			helper.BadAuth(c, "ErrNotLogin", err)
+			return
+		}
 		settingRepo := baseRepo.NewISettingRepo()
 		expirationDays, err := settingRepo.GetValueByKey("ExpirationDays")
-		if err != nil { helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err); return }
+		if err != nil {
+			helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err)
+			return
+		}
 		expiredDays, _ := strconv.Atoi(expirationDays)
-		if expiredDays == 0 { c.Next(); return }
+		if expiredDays == 0 {
+			c.Next()
+			return
+		}
 		shouldCheck, err := xpack.AuthProvider.ShouldCheckPasswordExpiration(c)
-		if err != nil { helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err); return }
-		if !shouldCheck { c.Next(); return }
+		if err != nil {
+			helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err)
+			return
+		}
+		if !shouldCheck {
+			c.Next()
+			return
+		}
 		expirationTime, err := xpack.AuthProvider.LoadPasswordExpirationTime(c)
-		if err != nil { helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err); return }
+		if err != nil {
+			helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err)
+			return
+		}
 		expiredTime, err := time.ParseInLocation(constant.DateTimeLayout, expirationTime, common.LoadExpiredLocation())
-		if err != nil { helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err); return }
-		if time.Now().After(expiredTime) { helper.ErrorWithDetail(c, 313, "ErrPasswordExpired", err); return }
+		if err != nil {
+			helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err)
+			return
+		}
+		if time.Now().After(expiredTime) {
+			helper.ErrorWithDetail(c, 313, "ErrPasswordExpired", err)
+			return
+		}
 		c.Next()
 	}
 }

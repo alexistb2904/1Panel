@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -76,7 +77,7 @@ func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 		var user model.AccessUser
 		err = global.DB.Where("username = ?", strings.TrimSpace(payload.Name)).First(&user).Error
 		if err != nil {
-			if errorsIsRecordNotFound(err) {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				deny(c, http.StatusUnauthorized, "Invalid credentials")
 				return
 			}
@@ -90,8 +91,6 @@ func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-func errorsIsRecordNotFound(err error) bool { return err == gorm.ErrRecordNotFound }
 
 // DisableLegacyPasskeyLoginAfterRBAC closes the legacy WebAuthn path after the
 // multi-user migration. Community passkeys were historically tied to the

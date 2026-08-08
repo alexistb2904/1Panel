@@ -13,6 +13,7 @@ func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
 		middleware.NormalizeDockerRBACTransport(),
 		middleware.DockerScopedStreamLogBridge(),
 		middleware.DockerRBAC(),
+		middleware.DockerScopedHostPathGuard(),
 		middleware.DockerRestrictedLifecycleGate(),
 		middleware.DockerRestrictedExecution(),
 	)

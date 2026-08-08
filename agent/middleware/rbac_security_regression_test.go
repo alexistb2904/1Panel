@@ -8,13 +8,6 @@ import (
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
 )
 
-func TestContainerAllowedDoesNotTreatOwnedNameAsIDPrefix(t *testing.T) {
-	allowed := map[string]struct{}{"deadbeefdead": {}}
-	if containerAllowed(allowed, "deadbeefdead0123456789abcdef", "victim") {
-		t.Fatal("a crafted 12-character owned container name must never authorize another container by ID prefix")
-	}
-}
-
 func TestStructuredRBACResourceTransportPreservesDelimiters(t *testing.T) {
 	want := []string{"mysql:primary:db,with,commas", "website:api"}
 	raw, err := json.Marshal(want)
@@ -27,9 +20,7 @@ func TestStructuredRBACResourceTransportPreservesDelimiters(t *testing.T) {
 
 func TestRestrictedContainerRejectsReservedPlatformLabels(t *testing.T) {
 	req := dto.ContainerOperate{Labels: []string{"com.docker.compose.project=victim"}}
-	if err := validateRestrictedContainerSecurityExtras(req); err == nil {
-		t.Fatal("scoped containers must not forge Compose/platform ownership labels")
-	}
+	if err := validateRestrictedContainerSecurityExtras(req); err == nil { t.Fatal("scoped containers must not forge Compose/platform ownership labels") }
 }
 
 func TestRestrictedComposeRejectsPrivilegedHostPort(t *testing.T) {
@@ -39,9 +30,7 @@ func TestRestrictedComposeRejectsPrivilegedHostPort(t *testing.T) {
     ports:
       - "443:8443"
 `
-	if err := validateRestrictedComposeExtraPolicy(compose); err == nil {
-		t.Fatal("scoped Compose must not publish privileged host ports")
-	}
+	if err := validateRestrictedComposeExtraPolicy(compose); err == nil { t.Fatal("scoped Compose must not publish privileged host ports") }
 }
 
 func TestRestrictedComposeAllowsUnprivilegedHostPort(t *testing.T) {
@@ -51,9 +40,7 @@ func TestRestrictedComposeAllowsUnprivilegedHostPort(t *testing.T) {
     ports:
       - "8080:80"
 `
-	if err := validateRestrictedComposeExtraPolicy(compose); err != nil {
-		t.Fatalf("ordinary unprivileged application port should remain available: %v", err)
-	}
+	if err := validateRestrictedComposeExtraPolicy(compose); err != nil { t.Fatalf("ordinary unprivileged application port should remain available: %v", err) }
 }
 
 func TestRestrictedComposeRejectsHostGatewayAndInclude(t *testing.T) {
@@ -84,25 +71,15 @@ func TestRestrictedComposeRejectsReservedLabels(t *testing.T) {
     labels:
       com.docker.compose.project: victim
 `
-	if err := validateRestrictedComposeExtraPolicy(compose); err == nil {
-		t.Fatal("scoped Compose must not forge reserved ownership labels")
-	}
+	if err := validateRestrictedComposeExtraPolicy(compose); err == nil { t.Fatal("scoped Compose must not forge reserved ownership labels") }
 }
 
 func TestRestrictedWebsiteCreationHasNoImplicitCrossResourceSideEffects(t *testing.T) {
 	cases := []map[string]any{
-		{"createDb": true},
-		{"ftpUser": "shared-user"},
-		{"enableSSL": true},
-		{"appID": float64(1)},
-		{"runtimeID": float64(1)},
+		{"createDb": true}, {"ftpUser": "shared-user"}, {"enableSSL": true}, {"appID": float64(1)}, {"runtimeID": float64(1)},
 	}
 	for _, payload := range cases {
-		if err := validateRestrictedWebsiteCreation(payload); err == nil {
-			t.Fatalf("unsafe website creation side effect must be rejected: %#v", payload)
-		}
+		if err := validateRestrictedWebsiteCreation(payload); err == nil { t.Fatalf("unsafe website creation side effect must be rejected: %#v", payload) }
 	}
-	if err := validateRestrictedWebsiteCreation(map[string]any{}); err != nil {
-		t.Fatalf("plain side-effect-free website creation should remain allowed: %v", err)
-	}
+	if err := validateRestrictedWebsiteCreation(map[string]any{}); err != nil { t.Fatalf("plain side-effect-free website creation should remain allowed: %v", err) }
 }

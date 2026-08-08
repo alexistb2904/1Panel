@@ -11,12 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RuntimeRestrictedExecution keeps generic project runtime read/update/operate
-// operations available while denying specialized package/config/process
-// controls whose execution boundary is the host/runtime engine rather than the
-// Core project. Runtime create/delete are also held admin-only for scoped users:
-// upstream executes those lifecycles asynchronously, so Core cannot safely
-// activate/remove ownership based on the immediate HTTP acknowledgement.
+// RuntimeRestrictedExecution exposes only runtime operations whose execution
+// target is already a concrete project-owned runtime and whose payload cannot
+// redefine host/container topology. Generic create/update/delete and specialized
+// package/config/process controls remain Administrator-only: upstream performs
+// some lifecycles asynchronously and RuntimeUpdate can replace image, codeDir,
+// host volumes, ports, environment and extra-hosts in one request.
 func RuntimeRestrictedExecution() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader(headerInternalRequest) == "1" || c.GetHeader(headerRBACMode) == rbacModeAll {
@@ -49,6 +49,9 @@ func RuntimeRestrictedExecution() gin.HandlerFunc {
 		case path == "" && c.Request.Method == http.MethodPost:
 			denyRuntimeAccess(c, "Runtime creation is administrator-only until asynchronous task completion is bound to ownership activation")
 			return
+		case path == "/update" && c.Request.Method == http.MethodPost:
+			denyRuntimeAccess(c, "Generic runtime mutation is administrator-only because it can redefine image, host paths, ports, environment and container topology")
+			return
 		case path == "/del" && c.Request.Method == http.MethodPost:
 			denyRuntimeAccess(c, "Runtime deletion is administrator-only until asynchronous task completion is bound to ownership cleanup")
 			return
@@ -69,7 +72,9 @@ func RuntimeRestrictedExecution() gin.HandlerFunc {
 
 func scopedRuntimeDetailID(path string) (uint, bool) {
 	trimmed := strings.Trim(path, "/")
-	if trimmed == "" || strings.Contains(trimmed, "/") { return 0, false }
+	if trimmed == "" || strings.Contains(trimmed, "/") {
+		return 0, false
+	}
 	id, err := strconv.ParseUint(trimmed, 10, 64)
 	return uint(id), err == nil && id != 0
 }
@@ -79,7 +84,9 @@ func scopedRuntimeDetailID(path string) (uint, bool) {
 // identities or host-network overrides. runtime.view remains useful for
 // operational status without becoming a secret/host-metadata capability.
 func redactRuntimeDTOForRBAC(item *response.RuntimeDTO) {
-	if item == nil { return }
+	if item == nil {
+		return
+	}
 	item.Params = map[string]interface{}{}
 	item.AppParams = nil
 	item.Environments = nil

@@ -9,7 +9,13 @@ import (
 type WebsiteRouter struct{}
 
 func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
-	websiteRouter := Router.Group("websites").Use(middleware.StableWebsiteIdentityGuard(), middleware.WebsiteRBAC(), middleware.WebsiteRestrictedExecution(), middleware.RBACDeletionIdentity())
+	websiteRouter := Router.Group("websites").Use(
+		middleware.StableWebsiteIdentityGuard(),
+		middleware.WebsiteRBAC(),
+		middleware.WebsiteRestrictedBoundaryGuard(),
+		middleware.WebsiteRestrictedExecution(),
+		middleware.RBACDeletionIdentity(),
+	)
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{

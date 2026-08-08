@@ -17,22 +17,38 @@ import (
 
 var communityUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{2,127}$`)
 
-// CommunityRBACEnabled reports whether the installation has completed the
-// Community multi-user bootstrap. Once at least one interactive RBAC identity
-// exists, legacy Settings-based credentials are no longer an authentication
-// source and must never be used as a fallback.
+// CommunityRBACEnabled is a schema-level, monotonic switch. The RBAC migration
+// runs before the HTTP server starts and bootstraps the legacy administrator.
+// Once the rbac_users table exists, Settings-based credentials must never become
+// a fallback again, even if all RBAC users are later deleted or the table is
+// temporarily unreadable. This prevents an empty/corrupt RBAC database from
+// resurrecting stale administrator credentials.
 func CommunityRBACEnabled() bool {
-	if global.DB == nil || !global.DB.Migrator().HasTable(&model.AccessUser{}) {
-		return false
+	return global.DB != nil && global.DB.Migrator().HasTable(&model.AccessUser{})
+}
+
+// PreserveGlobalLanguageOnLogin prevents an unauthenticated login attempt from
+// permanently mutating the installation-wide Language setting. The legacy
+// handler changes Language before validating credentials; multi-user Community
+// treats the request language as transient input and restores the global value
+// after the login handler completes.
+func PreserveGlobalLanguageOnLogin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !CommunityRBACEnabled() {
+			c.Next()
+			return
+		}
+		var setting model.Setting
+		if err := global.DB.Where("key = ?", "Language").First(&setting).Error; err != nil {
+			deny(c, http.StatusInternalServerError, "Unable to preserve login language setting")
+			return
+		}
+		original := setting.Value
+		c.Next()
+		if err := global.DB.Model(&model.Setting{}).Where("key = ?", "Language").Update("value", original).Error; err != nil {
+			global.LOG.Errorf("restore global Language after login attempt failed: %v", err)
+		}
 	}
-	var count int64
-	if err := global.DB.Model(&model.AccessUser{}).
-		Where("auth_source <> ?", "service_account").
-		Count(&count).Error; err != nil {
-		// Fail closed when the RBAC schema exists but cannot be queried.
-		return true
-	}
-	return count > 0
 }
 
 // RejectLegacyLoginAfterRBAC prevents the historical Settings UserName /
@@ -54,14 +70,13 @@ func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 			Name string `json:"name"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil || strings.TrimSpace(payload.Name) == "" {
-			// The normal auth handler will return the canonical validation error.
 			c.Next()
 			return
 		}
 		var user model.AccessUser
 		err = global.DB.Where("username = ?", strings.TrimSpace(payload.Name)).First(&user).Error
 		if err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errorsIsRecordNotFound(err) {
 				deny(c, http.StatusUnauthorized, "Invalid credentials")
 				return
 			}
@@ -75,6 +90,8 @@ func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func errorsIsRecordNotFound(err error) bool { return err == gorm.ErrRecordNotFound }
 
 // DisableLegacyPasskeyLoginAfterRBAC closes the legacy WebAuthn path after the
 // multi-user migration. Community passkeys were historically tied to the
@@ -106,11 +123,9 @@ func RequireInteractiveUser() gin.HandlerFunc {
 				return
 			}
 		}
-		if _, ok := CurrentUserID(c); !ok {
-			if CommunityRBACEnabled() {
-				deny(c, http.StatusUnauthorized, "An interactive RBAC identity is required")
-				return
-			}
+		if _, ok := CurrentUserID(c); !ok && CommunityRBACEnabled() {
+			deny(c, http.StatusUnauthorized, "An interactive RBAC identity is required")
+			return
 		}
 		c.Next()
 	}

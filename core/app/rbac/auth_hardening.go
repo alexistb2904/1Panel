@@ -13,10 +13,23 @@ import (
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 var communityUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{2,127}$`)
+
+var communityDummyLoginHash = func() []byte {
+	hash, err := bcrypt.GenerateFromPassword([]byte("1panel-rbac-dummy-password"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}()
+
+func consumeCommunityDummyLoginCost() {
+	_ = bcrypt.CompareHashAndPassword(communityDummyLoginHash, []byte("invalid-password"))
+}
 
 // CommunityRBACEnabled is a schema-level, monotonic switch. The RBAC migration
 // runs before the HTTP server starts and bootstraps the legacy administrator.
@@ -77,7 +90,9 @@ func PreserveGlobalLanguageOnLogin() gin.HandlerFunc {
 
 // RejectLegacyLoginAfterRBAC prevents the historical Settings UserName /
 // Password fallback from becoming a second, stale administrator credential
-// after the migration has copied the administrator into rbac_users.
+// after the migration has copied the administrator into rbac_users. Missing,
+// disabled and service-account usernames consume a dummy bcrypt comparison so
+// externally visible timing does not trivially enumerate interactive accounts.
 func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !CommunityRBACEnabled() {
@@ -101,6 +116,7 @@ func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 		err = global.DB.Where("username = ?", strings.TrimSpace(payload.Name)).First(&user).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				consumeCommunityDummyLoginCost()
 				deny(c, http.StatusUnauthorized, "Invalid credentials")
 				return
 			}
@@ -108,6 +124,7 @@ func RejectLegacyLoginAfterRBAC() gin.HandlerFunc {
 			return
 		}
 		if user.AuthSource == "service_account" || user.Status != model.AccessUserStatusActive {
+			consumeCommunityDummyLoginCost()
 			deny(c, http.StatusUnauthorized, "Invalid credentials")
 			return
 		}

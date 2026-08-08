@@ -9,13 +9,12 @@ import (
 type DatabaseRouter struct{}
 
 func (s *DatabaseRouter) InitRouter(Router *gin.RouterGroup) {
-	cmdRouter := Router.Group("databases").Use(middleware.DatabaseRBAC())
+	cmdRouter := Router.Group("databases").Use(middleware.DatabaseRBAC(), middleware.RBACDeletionIdentity())
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		cmdRouter.POST("/common/info", baseApi.LoadDBBaseInfo)
 		cmdRouter.POST("/common/load/file", baseApi.LoadDBFile)
 		cmdRouter.POST("/common/update/conf", baseApi.UpdateDBConfByFile)
-
 		cmdRouter.POST("", baseApi.CreateMysql)
 		cmdRouter.POST("/users/search", baseApi.ListMysqlUsers)
 		cmdRouter.POST("/users", baseApi.CreateMysqlUser)
@@ -39,7 +38,6 @@ func (s *DatabaseRouter) InitRouter(Router *gin.RouterGroup) {
 		cmdRouter.POST("/status", baseApi.LoadStatus)
 		cmdRouter.POST("/remote", baseApi.LoadRemoteAccess)
 		cmdRouter.POST("/format/options", baseApi.ListDBFormatCollationOptions)
-
 		cmdRouter.POST("/redis/persistence/conf", baseApi.LoadPersistenceConf)
 		cmdRouter.POST("/redis/status", baseApi.LoadRedisStatus)
 		cmdRouter.POST("/redis/conf", baseApi.LoadRedisConf)
@@ -48,7 +46,6 @@ func (s *DatabaseRouter) InitRouter(Router *gin.RouterGroup) {
 		cmdRouter.POST("/redis/password", baseApi.ChangeRedisPassword)
 		cmdRouter.POST("/redis/conf/update", baseApi.UpdateRedisConf)
 		cmdRouter.POST("/redis/persistence/update", baseApi.UpdateRedisPersistenceConf)
-
 		cmdRouter.POST("/db/check", baseApi.CheckDatabase)
 		cmdRouter.POST("/db", baseApi.CreateDatabase)
 		cmdRouter.GET("/db/:name", baseApi.GetDatabase)
@@ -58,7 +55,6 @@ func (s *DatabaseRouter) InitRouter(Router *gin.RouterGroup) {
 		cmdRouter.POST("/db/search", baseApi.SearchDatabase)
 		cmdRouter.POST("/db/del/check", baseApi.DeleteCheckDatabase)
 		cmdRouter.POST("/db/del", baseApi.DeleteDatabase)
-
 		cmdRouter.POST("/pg", baseApi.CreatePostgresql)
 		cmdRouter.POST("/pg/search", baseApi.SearchPostgresql)
 		cmdRouter.POST("/pg/:database/load", baseApi.LoadPostgresqlDBFromRemote)
@@ -68,7 +64,6 @@ func (s *DatabaseRouter) InitRouter(Router *gin.RouterGroup) {
 		cmdRouter.POST("/pg/privileges", baseApi.ChangePostgresqlPrivileges)
 		cmdRouter.POST("/pg/password", baseApi.ChangePostgresqlPassword)
 		cmdRouter.POST("/pg/description", baseApi.UpdatePostgresqlDescription)
-
 		cmdRouter.POST("/mongodb", baseApi.CreateMongodb)
 		cmdRouter.POST("/mongodb/search", baseApi.SearchMongodb)
 		cmdRouter.POST("/mongodb/description", baseApi.UpdateMongodbDescription)

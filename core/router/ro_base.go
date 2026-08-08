@@ -25,7 +25,7 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 		baseRouter.POST("/passkey/begin", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyBeginLogin)
 		baseRouter.POST("/passkey/finish", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyFinishLogin)
 		baseRouter.POST("/mfalogin", baseApi.MFALogin)
-		baseRouter.POST("/login", rbac.RejectLegacyLoginAfterRBAC(), baseApi.Login)
+		baseRouter.POST("/login", rbac.PreserveGlobalLanguageOnLogin(), rbac.RejectLegacyLoginAfterRBAC(), baseApi.Login)
 		baseRouter.POST("/logout", baseApi.LogOut)
 		baseRouter.GET("/setting", baseApi.GetLoginSetting)
 		baseRouter.GET("/welcome", baseApi.GetWelcomePage)

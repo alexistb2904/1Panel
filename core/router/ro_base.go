@@ -13,7 +13,8 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 	baseRouter := Router.Group("auth")
 	authRouter := Router.Group("auth").
 		Use(middleware.SessionAuth()).
-		Use(middleware.PasswordExpired())
+		Use(middleware.PasswordExpired()).
+		Use(rbac.RequireInteractiveUser())
 	adminAuthRouter := Router.Group("auth").
 		Use(middleware.SessionAuth()).
 		Use(middleware.PasswordExpired()).
@@ -21,10 +22,10 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		baseRouter.GET("/captcha", baseApi.Captcha)
-		baseRouter.POST("/passkey/begin", baseApi.PasskeyBeginLogin)
-		baseRouter.POST("/passkey/finish", baseApi.PasskeyFinishLogin)
+		baseRouter.POST("/passkey/begin", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyBeginLogin)
+		baseRouter.POST("/passkey/finish", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyFinishLogin)
 		baseRouter.POST("/mfalogin", baseApi.MFALogin)
-		baseRouter.POST("/login", baseApi.Login)
+		baseRouter.POST("/login", rbac.RejectLegacyLoginAfterRBAC(), baseApi.Login)
 		baseRouter.POST("/logout", baseApi.LogOut)
 		baseRouter.GET("/setting", baseApi.GetLoginSetting)
 		baseRouter.GET("/welcome", baseApi.GetWelcomePage)
@@ -42,7 +43,7 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 		adminAuthRouter.POST("/api/update", baseApi.UpdateApiConfig)
 
 		authRouter.GET("/current", baseApi.GetCurrentUser)
-		authRouter.POST("/current/update", baseApi.UpdateCurrentUser)
+		authRouter.POST("/current/update", rbac.ValidateCurrentUserUpdate(), baseApi.UpdateCurrentUser)
 		authRouter.POST("/expired/reset", baseApi.ResetPassword)
 	}
 }

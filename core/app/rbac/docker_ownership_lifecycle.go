@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
@@ -18,13 +17,10 @@ import (
 func isDockerOwnershipLifecycleMutation(c *gin.Context, ctx dockerRequestContext) bool {
 	path := strings.TrimPrefix(c.Request.URL.Path, "/api/v2/containers")
 	if ctx.ResourceType == "container" && path == "/rename" { return true }
-	if ctx.ResourceType == "container" && path == "/operate" {
-		return ctx.Permission == "docker.container.delete"
-	}
+	if ctx.ResourceType == "container" && path == "/operate" { return ctx.Permission == "docker.container.delete" }
 	if ctx.ResourceType == "compose" && path == "/compose/operate" {
-		var payload map[string]any
-		body, _ := readJSONBody(c)
-		_ = json.Unmarshal(body, &payload)
+		_, payload, err := readJSONBody(c)
+		if err != nil { return false }
 		return strings.EqualFold(stringValue(payload["operation"]), "delete")
 	}
 	return false
@@ -52,10 +48,7 @@ func ContinueDockerOwnershipLifecycle(c *gin.Context, nodeID uint, ctx dockerReq
 			return
 		}
 		owner, err := activeOwnedResourceByCanonicalName(nodeID, "container", oldName)
-		if err != nil {
-			deny(c, http.StatusPreconditionFailed, err.Error())
-			return
-		}
+		if err != nil { deny(c, http.StatusPreconditionFailed, err.Error()); return }
 		if err := reserveRenameTarget(owner.ProjectID, nodeID, "container", newName); err != nil {
 			deny(c, http.StatusPreconditionFailed, err.Error())
 			return
@@ -88,18 +81,10 @@ func ContinueDockerOwnershipLifecycle(c *gin.Context, nodeID uint, ctx dockerReq
 		return
 	}
 
-	// Container remove and Compose delete can operate on one or more canonical
-	// names. Require every name to have an active ownership row before dispatch.
 	names := append([]string(nil), ctx.Targets...)
-	if len(names) == 0 {
-		deny(c, http.StatusBadRequest, "Docker deletion requires canonical owned names")
-		return
-	}
+	if len(names) == 0 { deny(c, http.StatusBadRequest, "Docker deletion requires canonical owned names"); return }
 	owners, err := activeOwnedResourcesByCanonicalNames(nodeID, ctx.ResourceType, names)
-	if err != nil {
-		deny(c, http.StatusPreconditionFailed, err.Error())
-		return
-	}
+	if err != nil { deny(c, http.StatusPreconditionFailed, err.Error()); return }
 	deferred := newDeferredResponseWriter(c.Writer)
 	original := c.Writer
 	c.Writer = deferred
@@ -124,9 +109,8 @@ func ContinueDockerOwnershipLifecycle(c *gin.Context, nodeID uint, ctx dockerReq
 }
 
 func reserveRenameTarget(projectID, nodeID uint, resourceType, newName string) error {
-	keys := []string{fmt.Sprintf("%d:%s:%s", nodeID, resourceType, newName)}
-	sort.Strings(keys)
-	release := acquireProjectResourceCreationLock(keys[0])
+	lockKey := fmt.Sprintf("%d:%s:%s", nodeID, resourceType, newName)
+	release := acquireProjectResourceCreationLock(lockKey)
 	defer release()
 	created, active, err := reserveProjectResource(projectID, nodeID, resourceType, newName)
 	if err != nil { return err }

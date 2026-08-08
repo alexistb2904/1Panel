@@ -37,21 +37,35 @@ var auditRetentionState = struct {
 }{}
 
 func AuditDecision(c *gin.Context, subjectID uint, action, decision, resourceType, resourceID string, nodeID, projectID uint, reason string) {
-	if global.DB == nil { return }
+	if global.DB == nil {
+		return
+	}
 	if strings.EqualFold(strings.TrimSpace(decision), "deny") {
-		if c != nil { c.Set(auditDenyRecordedKey, true) }
-		if !allowDenyAudit(subjectID, action, resourceType, resourceID, c) { return }
+		if c != nil {
+			c.Set(auditDenyRecordedKey, true)
+		}
+		// Rate-limit by principal + decision class, not by attacker-controlled
+		// resource IDs or URL segments. Otherwise changing a target ID on every
+		// request creates an unbounded stream of distinct limiter keys and audit
+		// inserts despite the apparent per-key burst limit.
+		if !allowDenyAudit(subjectID, action, resourceType) {
+			return
+		}
 	}
 	subjectType := "user"
 	if c != nil {
 		if value, ok := c.Get(GinContextRBACSubjectTypeKey); ok {
-			if typed, ok := value.(string); ok && typed != "" { subjectType = typed }
+			if typed, ok := value.(string); ok && typed != "" {
+				subjectType = typed
+			}
 		}
 	}
 	subjectName := ""
 	if subjectID != 0 {
 		var user model.AccessUser
-		if err := global.DB.Select("username").First(&user, subjectID).Error; err == nil { subjectName = user.Username }
+		if err := global.DB.Select("username").First(&user, subjectID).Error; err == nil {
+			subjectName = user.Username
+		}
 	}
 	event := model.AccessAuditEvent{
 		SubjectType: subjectType, SubjectID: subjectID, SubjectName: subjectName,
@@ -68,7 +82,9 @@ func AuditDecision(c *gin.Context, subjectID uint, action, decision, resourceTyp
 }
 
 func recordAuditEvent(event *model.AccessAuditEvent) {
-	if global.DB == nil || event == nil { return }
+	if global.DB == nil || event == nil {
+		return
+	}
 	if err := global.DB.Create(event).Error; err != nil {
 		global.LOG.Warnf("write RBAC audit event failed: %v", err)
 		return
@@ -95,10 +111,8 @@ func maybePruneAuditEvents(now time.Time) {
 	}
 }
 
-func allowDenyAudit(subjectID uint, action, resourceType, resourceID string, c *gin.Context) bool {
-	path := ""
-	if c != nil && c.Request != nil { path = c.Request.URL.Path }
-	key := fmt.Sprintf("%d|%s|%s|%s|%s", subjectID, action, resourceType, resourceID, path)
+func allowDenyAudit(subjectID uint, action, resourceType string) bool {
+	key := fmt.Sprintf("%d|%s|%s", subjectID, strings.TrimSpace(action), strings.TrimSpace(resourceType))
 	now := time.Now()
 	denyAuditLimiter.Lock()
 	defer denyAuditLimiter.Unlock()
@@ -106,9 +120,13 @@ func allowDenyAudit(subjectID uint, action, resourceType, resourceID string, c *
 	if len(denyAuditLimiter.items) >= auditLimiterMaxKeys {
 		cutoff := now.Add(-auditDenyWindow)
 		for existingKey, window := range denyAuditLimiter.items {
-			if window.started.Before(cutoff) { delete(denyAuditLimiter.items, existingKey) }
+			if window.started.Before(cutoff) {
+				delete(denyAuditLimiter.items, existingKey)
+			}
 		}
-		if len(denyAuditLimiter.items) >= auditLimiterMaxKeys { return false }
+		if len(denyAuditLimiter.items) >= auditLimiterMaxKeys {
+			return false
+		}
 	}
 
 	window, ok := denyAuditLimiter.items[key]
@@ -116,7 +134,9 @@ func allowDenyAudit(subjectID uint, action, resourceType, resourceID string, c *
 		denyAuditLimiter.items[key] = auditWindow{started: now, count: 1}
 		return true
 	}
-	if window.count >= auditDenyBurst { return false }
+	if window.count >= auditDenyBurst {
+		return false
+	}
 	window.count++
 	denyAuditLimiter.items[key] = window
 	return true
@@ -126,7 +146,9 @@ func AuditMutation(c *gin.Context, action, resourceType, resourceID string, meta
 	userID, _ := CurrentUserID(c)
 	serialized := ""
 	if len(metadata) != 0 {
-		if raw, err := json.Marshal(metadata); err == nil { serialized = string(raw) }
+		if raw, err := json.Marshal(metadata); err == nil {
+			serialized = string(raw)
+		}
 	}
 	event := model.AccessAuditEvent{
 		SubjectType: "user", SubjectID: userID, Action: action, Decision: "allow",
@@ -134,11 +156,15 @@ func AuditMutation(c *gin.Context, action, resourceType, resourceID string, meta
 		Method: c.Request.Method, Path: c.Request.URL.Path, RemoteIP: c.ClientIP(),
 	}
 	if value, ok := c.Get(GinContextRBACSubjectTypeKey); ok {
-		if typed, ok := value.(string); ok && typed != "" { event.SubjectType = typed }
+		if typed, ok := value.(string); ok && typed != "" {
+			event.SubjectType = typed
+		}
 	}
 	if userID != 0 {
 		var user model.AccessUser
-		if err := global.DB.Select("username").First(&user, userID).Error; err == nil { event.SubjectName = user.Username }
+		if err := global.DB.Select("username").First(&user, userID).Error; err == nil {
+			event.SubjectName = user.Username
+		}
 	}
 	recordAuditEvent(&event)
 }

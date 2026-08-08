@@ -2,6 +2,8 @@ package rbac
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,8 +19,12 @@ import (
 func withAuthHardeningDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil { t.Fatal(err) }
-	if err := db.AutoMigrate(&model.AccessUser{}, &model.Setting{}, &model.AccessAuditEvent{}); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.AccessUser{}, &model.Setting{}, &model.AccessAuditEvent{}); err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 
@@ -32,7 +38,9 @@ func withGlobalDB(t *testing.T, db *gorm.DB) {
 func TestCommunityRBACEnabledRemainsTrueWithZeroUsers(t *testing.T) {
 	db := withAuthHardeningDB(t)
 	withGlobalDB(t, db)
-	if !CommunityRBACEnabled() { t.Fatal("an existing RBAC schema must permanently disable legacy authentication even when no users remain") }
+	if !CommunityRBACEnabled() {
+		t.Fatal("an existing RBAC schema must permanently disable legacy authentication even when no users remain")
+	}
 }
 
 func TestLegacyLoginCannotResurrectWhenRBACUserMissing(t *testing.T) {
@@ -46,8 +54,12 @@ func TestLegacyLoginCannotResurrectWhenRBACUserMissing(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"name":"old-admin"}`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, req)
-	if downstream { t.Fatal("unknown user must not fall through to legacy Settings credentials after migration") }
-	if !strings.Contains(recorder.Body.String(), `"code":401`) { t.Fatalf("expected fail-closed authentication response, got %s", recorder.Body.String()) }
+	if downstream {
+		t.Fatal("unknown user must not fall through to legacy Settings credentials after migration")
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":401`) {
+		t.Fatalf("expected fail-closed authentication response, got %s", recorder.Body.String())
+	}
 }
 
 func TestServiceAccountCannotUseInteractiveProfileRoutes(t *testing.T) {
@@ -58,7 +70,9 @@ func TestServiceAccountCannotUseInteractiveProfileRoutes(t *testing.T) {
 	router.GET("/current", func(c *gin.Context) { c.Set("SCOPED_API_AUTH", true); c.Next() }, RequireInteractiveUser(), func(c *gin.Context) { t.Fatal("service account reached interactive handler") })
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/current", nil))
-	if !strings.Contains(recorder.Body.String(), `"code":403`) { t.Fatalf("expected service-account 403, got %s", recorder.Body.String()) }
+	if !strings.Contains(recorder.Body.String(), `"code":403`) {
+		t.Fatalf("expected service-account 403, got %s", recorder.Body.String())
+	}
 }
 
 func TestSelfServicePasswordMinimumIsServerEnforced(t *testing.T) {
@@ -73,22 +87,42 @@ func TestSelfServicePasswordMinimumIsServerEnforced(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, req)
-	if !strings.Contains(recorder.Body.String(), `"code":400`) { t.Fatalf("expected password policy rejection, got %s", recorder.Body.String()) }
+	if !strings.Contains(recorder.Body.String(), `"code":400`) {
+		t.Fatalf("expected password policy rejection, got %s", recorder.Body.String())
+	}
 }
 
-func TestLoginLanguageMutationIsTransient(t *testing.T) {
+func TestLoginLanguageIsNormalizedWithoutMutatingGlobalSetting(t *testing.T) {
 	db := withAuthHardeningDB(t)
 	withGlobalDB(t, db)
-	if err := db.Create(&model.Setting{Key: "Language", Value: "en"}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&model.Setting{Key: "Language", Value: "en"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/login", PreserveGlobalLanguageOnLogin(), func(c *gin.Context) {
-		if err := db.Model(&model.Setting{}).Where("key = ?", "Language").Update("value", "fr").Error; err != nil { t.Fatal(err) }
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["language"] != "en" {
+			t.Fatalf("login language was not normalized to persisted value: %#v", payload["language"])
+		}
 		c.JSON(http.StatusOK, gin.H{"code": 200})
 	})
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/login", nil))
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"name":"someone","language":"fr"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, req)
 	var setting model.Setting
-	if err := db.Where("key = ?", "Language").First(&setting).Error; err != nil { t.Fatal(err) }
-	if setting.Value != "en" { t.Fatalf("login request permanently changed global language: %q", setting.Value) }
+	if err := db.Where("key = ?", "Language").First(&setting).Error; err != nil {
+		t.Fatal(err)
+	}
+	if setting.Value != "en" {
+		t.Fatalf("unauthenticated login request changed global language: %q", setting.Value)
+	}
 }

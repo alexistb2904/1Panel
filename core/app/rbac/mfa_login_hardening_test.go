@@ -1,6 +1,7 @@
 package rbac
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,7 +26,11 @@ func TestCommunityMFASessionHasBoundedAttemptBudget(t *testing.T) {
 		reached++
 		c.JSON(http.StatusUnauthorized, gin.H{"code": http.StatusUnauthorized})
 	})
-	body := `{"sessionID":"` + sessionID + `","code":"000000"}`
+	body := fmt.Sprintf(`{"sessionID":%q,"code":"000000"}`, sessionID)
+	// fmt %q already quotes and escapes a JSON-safe ASCII session identifier;
+	// remove the raw-string escaping around the field names to produce the real
+	// wire payload used by the API.
+	body = fmt.Sprintf("{\"sessionID\":%q,\"code\":\"000000\"}", sessionID)
 	for i := 0; i < initauth.MFASessionMaxFailures+1; i++ {
 		recorder := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/mfa", strings.NewReader(body))
@@ -59,7 +64,7 @@ func TestCommunityMFASessionIsSerializedAsOneTimeCredential(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"code": http.StatusOK})
 	})
 
-	body := `{"sessionID":"` + sessionID + `","code":"123456"}`
+	body := fmt.Sprintf("{\"sessionID\":%q,\"code\":\"123456\"}", sessionID)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)

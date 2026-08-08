@@ -19,7 +19,7 @@ func (a *authHelper) PasskeyBeginLogin(c *gin.Context, entrance string) (*baseDt
 func (a *authHelper) PasskeyFinishLogin(c *gin.Context, sessionID, entrance string) (*baseDto.UserLoginInfo, string, error) { return auth.PasskeyFinishLogin(c, sessionID, entrance) }
 func (a *authHelper) PasskeyBeginRegister(c *gin.Context, name string) (*baseDto.PasskeyBeginResponse, string, error) { return auth.PasskeyBeginRegister(c, name) }
 func (a *authHelper) PasskeyFinishRegister(c *gin.Context, sessionID string) (string, error) { return auth.PasskeyFinishRegister(c, sessionID) }
-func (a *authHelper) PasskeyList(c *gin.Context) ([]baseDto.PasskeyInfo, error) { return auth.PasskeyList(c) }
+func (a *authHelper) PasskeyList(c *gin.Context) ([]baseDto.PasskeyInfo, error) { return auth.PasskeyList() }
 func (a *authHelper) PasskeyDelete(c *gin.Context, id string) error { return auth.PasskeyDelete(id) }
 func (a *authHelper) PasskeyStatus(c *gin.Context) bool { return auth.PasskeyStatus(c) }
 func (a *authHelper) ClearPasskeys() error { return nil }

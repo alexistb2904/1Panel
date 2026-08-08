@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
@@ -17,6 +18,7 @@ import (
 )
 
 var communityUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{2,127}$`)
+var loginLanguageMu sync.Mutex
 
 // CommunityRBACEnabled is a schema-level, monotonic switch. The RBAC migration
 // runs before the HTTP server starts and bootstraps the legacy administrator.
@@ -32,13 +34,17 @@ func CommunityRBACEnabled() bool {
 // permanently mutating the installation-wide Language setting. The legacy
 // handler changes Language before validating credentials; multi-user Community
 // treats the request language as transient input and restores the global value
-// after the login handler completes.
+// after the login handler completes. Login attempts are serialized around this
+// legacy mutation so concurrent requests cannot interleave snapshot/restore and
+// accidentally persist another request's transient language.
 func PreserveGlobalLanguageOnLogin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !CommunityRBACEnabled() {
 			c.Next()
 			return
 		}
+		loginLanguageMu.Lock()
+		defer loginLanguageMu.Unlock()
 		var setting model.Setting
 		if err := global.DB.Where("key = ?", "Language").First(&setting).Error; err != nil {
 			deny(c, http.StatusInternalServerError, "Unable to preserve login language setting")

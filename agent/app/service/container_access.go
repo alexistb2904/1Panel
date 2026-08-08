@@ -97,6 +97,29 @@ func ResolveContainerTarget(target string, allowed []string) (bool, error) {
 	return containerAllowed(allowedSet, inspected.ID, name), nil
 }
 
+// RemoveContainersForRBAC executes scoped deletion synchronously. The legacy
+// ContainerOperation path schedules remove work in a background task and returns
+// success before Docker has actually removed anything; Core therefore cannot
+// safely clean ownership from that acknowledgement. The scoped path uses the
+// same per-container operation lock but waits for Docker to confirm removal
+// before returning success, so the Core ownership cleanup becomes transactional
+// with the externally observable lifecycle.
+func RemoveContainersForRBAC(names []string) error {
+	client, err := docker.NewDockerClient()
+	if err != nil { return err }
+	defer client.Close()
+	ctx := context.Background()
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" { continue }
+		unlock := containerOperationLock.lock(name)
+		err := client.ContainerRemove(ctx, name, container.RemoveOptions{RemoveVolumes: true, Force: true})
+		unlock()
+		if err != nil { return err }
+	}
+	return nil
+}
+
 // resolveAllowedContainerIdentifiers treats every Core ownership identifier as
 // a container NAME. Full IDs are added only after Docker itself confirms that
 // an exact container name is owned. This intentionally removes the ambiguous

@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const testScopedServiceToken = "1ps_0123456789abcdef_0123456789abcdef0123456789abcdef0123456789abcdef"
+const testScopedServiceToken = "1ps_0123456789abcdef_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func TestScopedServiceTokenShapeIsExact(t *testing.T) {
 	if !IsScopedServiceTokenRequestAuthorization("Bearer " + testScopedServiceToken) {

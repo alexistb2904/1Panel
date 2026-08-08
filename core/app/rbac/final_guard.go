@@ -10,12 +10,11 @@ import (
 
 // FinalDefaultDenyMiddleware is the last RBAC gate before the Core proxy.
 //
-// 1Panel Community historically assumes a single trusted administrator, so
-// many legacy Agent routes only require an authenticated session. Once multiple
-// users exist, that assumption is unsafe. Restricted RBAC identities may only
-// reach Agent API families that have an explicit scoped middleware, plus a
-// small set of Core self-service/access-control routes that are protected by
-// their route-level guards.
+// Once Community RBAC has been bootstrapped, an authenticated/legacy request
+// without a concrete RBAC identity is never allowed to fall through to the
+// historical single-administrator Agent surface. Only the intentionally public
+// authentication bootstrap and public file-share endpoints may reach the next
+// stage without a user identity.
 func FinalDefaultDenyMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
@@ -29,9 +28,16 @@ func FinalDefaultDenyMiddleware() gin.HandlerFunc {
 		}
 		userID, ok := CurrentUserID(c)
 		if !ok {
-			// Anonymous login/public routes and legacy bootstrap are handled by the
-			// existing authentication stack. This guard only constrains an RBAC
-			// identity that has already been established.
+			if isAnonymousRBACPath(path) {
+				c.Next()
+				return
+			}
+			if CommunityRBACEnabled() {
+				deny(c, http.StatusUnauthorized, "RBAC identity is required")
+				return
+			}
+			// Pre-migration/bootstrap compatibility only. Once the RBAC migration
+			// has produced an interactive identity this branch is unreachable.
 			c.Next()
 			return
 		}
@@ -51,6 +57,25 @@ func FinalDefaultDenyMiddleware() gin.HandlerFunc {
 		}
 		AuditDecision(c, userID, "request.default_deny", "deny", "request", path, 0, 0, "API family has no explicit RBAC policy")
 		deny(c, http.StatusForbidden, "This API is administrator-only until an explicit RBAC policy is defined")
+	}
+}
+
+func isAnonymousRBACPath(path string) bool {
+	switch path {
+	case "/api/v2/core/auth/captcha",
+		"/api/v2/core/auth/passkey/begin",
+		"/api/v2/core/auth/passkey/finish",
+		"/api/v2/core/auth/mfalogin",
+		"/api/v2/core/auth/login",
+		"/api/v2/core/auth/logout",
+		"/api/v2/core/auth/setting",
+		"/api/v2/core/auth/welcome",
+		"/api/v2/files/share/info",
+		"/api/v2/files/share/check",
+		"/api/v2/files/share/download":
+		return true
+	default:
+		return false
 	}
 }
 

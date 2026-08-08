@@ -204,7 +204,9 @@ func classifyRuntimeCoreRequest(method, path string, payload map[string]any) sco
 	}
 	id := runtimeIDFromCoreRequest(path, payload)
 	resourceID := ""
-	if id != 0 {
+	if name != "" {
+		resourceID = runtimeKey(name)
+	} else if id != 0 {
 		resourceID = strconv.FormatUint(uint64(id), 10)
 	}
 	permission := ""
@@ -270,15 +272,24 @@ func authorizeProjectResourceCreation(evaluator *Evaluator, userID, nodeID uint,
 }
 
 func projectForScopedResource(nodeID uint, resourceType, resourceID string, explicitProjectID uint) (model.AccessProject, error) {
+	resourceType = strings.TrimSpace(resourceType)
+	resourceID = strings.TrimSpace(resourceID)
+	if resourceType == "" || resourceID == "" {
+		return model.AccessProject{}, errors.New("stable resource identity is required to resolve project ownership")
+	}
 	var membership model.AccessProjectResource
-	query := global.DB.Where("node_id = ? AND resource_type = ?", nodeID, resourceType)
+	query := global.DB.Where(
+		"node_id = ? AND resource_type = ? AND resource_id = ? AND state = ?",
+		nodeID, resourceType, resourceID, model.AccessResourceStateActive,
+	)
 	if explicitProjectID != 0 {
 		query = query.Where("project_id = ?", explicitProjectID)
-	} else if resourceID != "" {
-		query = query.Where("resource_id = ?", resourceID)
 	}
 	if err := query.First(&membership).Error; err != nil {
 		return model.AccessProject{}, errors.New("resource project ownership could not be resolved")
+	}
+	if explicitProjectID != 0 && membership.ProjectID != explicitProjectID {
+		return model.AccessProject{}, errors.New("resource does not belong to the requested project")
 	}
 	var project model.AccessProject
 	if err := global.DB.First(&project, membership.ProjectID).Error; err != nil || project.Status != "active" {

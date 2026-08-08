@@ -16,8 +16,9 @@ import (
 
 // DockerRestrictedExecution runs after DockerRBAC has resolved and authorized
 // the target. It closes execution-level gaps that cannot safely be represented
-// as a simple resource-ID filter: asynchronous creation, secret-bearing raw
-// inspect output and Compose features that can reach host/global resources.
+// as a simple resource-ID filter: asynchronous creation/deletion,
+// secret-bearing raw inspect output and Compose features that can reach
+// host/global resources.
 func DockerRestrictedExecution() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader(headerDockerInternalRequest) == "1" || c.GetHeader(headerDockerRBACMode) == dockerRBACModeAll {
@@ -42,6 +43,26 @@ func DockerRestrictedExecution() gin.HandlerFunc {
 			}
 			helper.Success(c)
 			c.Abort()
+			return
+
+		case path == "/operate" && c.Request.Method == http.MethodPost:
+			var req dto.ContainerOperation
+			if !bindReusableJSON(c, &req) { return }
+			if strings.EqualFold(strings.TrimSpace(req.Operation), "remove") {
+				// Upstream ContainerOperation queues remove work asynchronously and
+				// returns before Docker confirms deletion. Scoped ownership cleanup
+				// must only happen after the actual remove succeeds, so execute this
+				// one destructive operation synchronously at the Agent boundary.
+				if err := service.RemoveContainersForRBAC(req.Names); err != nil {
+					helper.InternalServer(c, err)
+					c.Abort()
+					return
+				}
+				helper.Success(c)
+				c.Abort()
+				return
+			}
+			c.Next()
 			return
 
 		case path == "/update" && c.Request.Method == http.MethodPost:

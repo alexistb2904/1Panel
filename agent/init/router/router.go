@@ -22,6 +22,7 @@ func Routers() *gin.Engine {
 		PrivateGroup.Use(middleware.Certificate())
 	}
 	PrivateGroup.Use(middleware.OperationResolveMeta())
+	PrivateGroup.Use(middleware.RBACSecurityAudit())
 	for _, router := range rou.RouterGroupApp {
 		router.InitRouter(PrivateGroup)
 	}

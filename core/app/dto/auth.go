@@ -77,9 +77,11 @@ type ApiInterfaceConfig struct {
 }
 
 type CurrentUserInfo struct {
+	ID                uint   `json:"id"`
 	Name              string `json:"name"`
 	MFAStatus         string `json:"mfaStatus"`
 	MFAInterval       int    `json:"mfaInterval"`
+	RequireMFA        bool   `json:"requireMFA"`
 	ComplexitySetting string `json:"complexitySetting"`
 	AuthSource        string `json:"authSource"`
 	AuthSourceStatus  string `json:"authSourceStatus"`

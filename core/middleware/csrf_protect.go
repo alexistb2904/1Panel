@@ -33,7 +33,7 @@ func CSRFTokenGuard() gin.HandlerFunc {
 }
 
 func requiresCSRFTokenCheck(c *gin.Context) bool {
-	if c.GetBool("LOCAL_REQUEST") {
+	if c.GetBool("LOCAL_REQUEST") || c.GetBool("SCOPED_API_AUTH") || IsScopedServiceTokenRequestAuthorization(c.GetHeader("Authorization")) {
 		return false
 	}
 	unsafeMethod := c.Request.Method != http.MethodGet &&

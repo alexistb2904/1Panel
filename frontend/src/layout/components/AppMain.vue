@@ -1,4 +1,5 @@
 <template>
+    <RbacProjectScope />
     <router-view v-slot="{ Component, route }" :key="key">
         <transition appear name="fade-transform" mode="out-in">
             <keep-alive :include="include">
@@ -10,14 +11,11 @@
 
 <script setup lang="ts">
 import cacheRouter from '@/routers/cache-router';
+import RbacProjectScope from '@/components/rbac-project-scope/index.vue';
 import { computed } from 'vue';
 
-const key = computed(() => {
-    return Math.random();
-});
-const include = computed(() => {
-    return props.keepAlive || cacheRouter;
-});
+const key = computed(() => Math.random());
+const include = computed(() => props.keepAlive || cacheRouter);
 const props = defineProps({
     keepAlive: {
         type: Object,

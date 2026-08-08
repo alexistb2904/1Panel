@@ -1,5 +1,6 @@
 import router from '@/routers';
 import { GlobalStore } from '@/store';
+import { hasPermission } from '@/utils/rbac';
 import { normalizeToManageCode } from '@/utils/permission-codes';
 
 export type PermissionBindingValue = string | string[] | undefined;
@@ -63,7 +64,7 @@ const hasPermissionAccessByMode = (
     if (normalizedPermissions.length === 0) {
         return globalStore.isAdmin;
     }
-    return normalizedPermissions.some((permission) => globalStore.hasPermission(permission));
+    return normalizedPermissions.some((permission) => hasPermission(permission));
 };
 
 export const hasManagePermissionAccess = (value?: PermissionBindingValue, options?: PermissionAccessOptions) => {

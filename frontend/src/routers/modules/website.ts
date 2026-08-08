@@ -9,6 +9,7 @@ const webSiteRouter = {
     meta: {
         icon: 'p-website',
         title: 'menu.website',
+        permission: 'website.view',
     },
     children: [
         {
@@ -18,7 +19,7 @@ const webSiteRouter = {
             meta: {
                 icon: 'p-website',
                 title: 'menu.website',
-                permission: 'website_view',
+                permission: 'website.view',
             },
         },
         {
@@ -30,7 +31,7 @@ const webSiteRouter = {
             meta: {
                 activeMenu: '/websites',
                 ignoreTab: true,
-                permission: 'website_view',
+                permission: 'website.view',
             },
         },
         {
@@ -40,7 +41,7 @@ const webSiteRouter = {
             meta: {
                 icon: 'p-ssl-menu',
                 title: 'menu.ssl',
-                permission: 'website_cert_view',
+                permission: 'settings.manage',
             },
         },
         {
@@ -50,7 +51,7 @@ const webSiteRouter = {
             meta: {
                 icon: 'p-file-html',
                 title: 'menu.template',
-                permission: 'website_view',
+                permission: 'settings.manage',
             },
         },
         {
@@ -62,7 +63,7 @@ const webSiteRouter = {
                 title: 'menu.runtime',
                 detail: 'PHP',
                 activeMenu: '/websites/runtimes/php',
-                permission: 'website_runtime_view',
+                permission: 'runtime.view',
             },
         },
         {
@@ -74,7 +75,7 @@ const webSiteRouter = {
                 title: 'menu.runtime',
                 detail: 'Node',
                 activeMenu: '/websites/runtimes/php',
-                permission: 'website_runtime_view',
+                permission: 'runtime.view',
             },
         },
         {
@@ -86,7 +87,7 @@ const webSiteRouter = {
                 title: 'menu.runtime',
                 detail: 'Java',
                 activeMenu: '/websites/runtimes/php',
-                permission: 'website_runtime_view',
+                permission: 'runtime.view',
             },
         },
         {
@@ -98,7 +99,7 @@ const webSiteRouter = {
                 title: 'menu.runtime',
                 detail: 'Go',
                 activeMenu: '/websites/runtimes/php',
-                permission: 'website_runtime_view',
+                permission: 'runtime.view',
             },
         },
         {
@@ -110,7 +111,7 @@ const webSiteRouter = {
                 title: 'menu.runtime',
                 detail: 'Python',
                 activeMenu: '/websites/runtimes/php',
-                permission: 'website_runtime_view',
+                permission: 'runtime.view',
             },
         },
         {
@@ -122,7 +123,7 @@ const webSiteRouter = {
                 title: 'menu.runtime',
                 detail: '.Net',
                 activeMenu: '/websites/runtimes/php',
-                permission: 'website_runtime_view',
+                permission: 'runtime.view',
             },
         },
     ],

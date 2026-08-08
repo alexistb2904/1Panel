@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/1Panel-dev/1Panel/core/app/api/v2/helper"
+	"github.com/1Panel-dev/1Panel/core/app/rbac"
 	baseRepo "github.com/1Panel-dev/1Panel/core/app/repo"
 	"github.com/1Panel-dev/1Panel/core/cmd/server/res"
 	"github.com/1Panel-dev/1Panel/core/constant"
@@ -18,27 +19,26 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const internalAgentRequestHeader = "X-Panel-Internal-Request"
+
 func Proxy() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// This header is reserved for Core-created Unix-socket requests. Never
+		// forward a browser-provided value to Agent.
+		c.Request.Header.Del(internalAgentRequestHeader)
+
 		reqPath := c.Request.URL.Path
 		if !middleware.ShouldProxyToAgent(reqPath) {
 			c.Next()
 			return
 		}
-		var nodeItem string
-		queryNode := c.Query("operateNode")
-		if queryNode != "" && queryNode != "undefined" {
-			nodeItem = queryNode
-		} else {
-			nodeItem = c.Request.Header.Get("CurrentNode")
-		}
-		currentNode, err := url.QueryUnescape(nodeItem)
+		currentNode, err := rbac.ResolveRequestNodeSelector(c)
 		if err != nil {
 			helper.ErrorWithDetail(c, http.StatusBadRequest, "ErrProxy", err)
 			return
 		}
 
-		apiReq := c.GetBool("API_AUTH")
+		apiReq := isProxyAPIRequest(c)
 
 		if !apiReq && !isLocalAPI(reqPath) && !middleware.IsPublicFileShareAPI(reqPath) && !checkSession(c) {
 			data, _ := res.ErrorMsg.ReadFile("html/401.html")
@@ -51,18 +51,26 @@ func Proxy() gin.HandlerFunc {
 			c.Request.Header.Set("X-Panel-User", url.QueryEscape(userName))
 		}
 
-		if reqPath == "/api/v2/hosts/terminal/local" && (currentNode == "local" || len(currentNode) == 0) {
+		if reqPath == "/api/v2/hosts/terminal/local" && currentNode == "local" {
 			proxyLocalAgent(c)
 			return
 		}
 
-		if !strings.HasPrefix(reqPath, "/api/v2/core") && (currentNode == "local" || len(currentNode) == 0) {
+		if !strings.HasPrefix(reqPath, "/api/v2/core") && currentNode == "local" {
 			proxyLocalAgent(c)
 			return
 		}
 		xpack.MultiNodeProvider.Proxy(c, currentNode)
 		c.Abort()
 	}
+}
+
+func isProxyAPIRequest(c *gin.Context) bool {
+	// Scoped service accounts are already authenticated and authorized by the
+	// RBAC stack and deliberately have no browser session cookie. Legacy API_AUTH
+	// remains an explicit break-glass credential and is disabled by the RBAC
+	// upgrade migration until an administrator consciously re-enables it.
+	return c.GetBool("API_AUTH") || c.GetBool("SCOPED_API_AUTH")
 }
 
 func proxyLocalAgent(c *gin.Context) {

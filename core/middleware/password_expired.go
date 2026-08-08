@@ -23,7 +23,12 @@ func PasswordExpired() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if c.GetBool("LOCAL_REQUEST") {
+		// Service accounts are machine principals and have no browser session or
+		// interactive password-expiry state. This middleware runs before the RBAC
+		// provider globally, so recognize only the exact generated token shape
+		// here; the credential itself is authenticated later by RBAC and invalid
+		// tokens remain fail-closed.
+		if c.GetBool("LOCAL_REQUEST") || c.GetBool("SCOPED_API_AUTH") || IsScopedServiceTokenRequestAuthorization(c.GetHeader("Authorization")) {
 			c.Next()
 			return
 		}
@@ -97,7 +102,6 @@ func PasswordExpired() gin.HandlerFunc {
 			helper.ErrorWithDetail(c, http.StatusInternalServerError, "ErrPasswordExpired", err)
 			return
 		}
-
 		if time.Now().After(expiredTime) {
 			helper.ErrorWithDetail(c, 313, "ErrPasswordExpired", err)
 			return

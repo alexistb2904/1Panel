@@ -9,7 +9,7 @@ const databaseRouter = {
     meta: {
         icon: 'p-database',
         title: 'menu.database',
-        permission: 'database_view',
+        permission: 'database.view',
     },
     children: [
         {
@@ -28,7 +28,7 @@ const databaseRouter = {
                         activeMenu: '/databases',
                         parent: 'menu.database',
                         title: 'MySQL',
-                        permission: 'database_view',
+                        permission: 'database.view',
                     },
                 },
                 {
@@ -40,7 +40,7 @@ const databaseRouter = {
                     meta: {
                         activeMenu: '/databases',
                         ignoreTab: true,
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -53,7 +53,7 @@ const databaseRouter = {
                         parent: 'menu.database',
                         title: 'MySQL',
                         detail: 'database.remote',
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -65,7 +65,7 @@ const databaseRouter = {
                         activeMenu: '/databases',
                         parent: 'menu.database',
                         title: 'PostgreSQL',
-                        permission: 'database_view',
+                        permission: 'database.view',
                     },
                 },
                 {
@@ -78,7 +78,7 @@ const databaseRouter = {
                         parent: 'menu.database',
                         title: 'PostgreSQL',
                         detail: 'database.remote',
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -90,7 +90,7 @@ const databaseRouter = {
                     meta: {
                         activeMenu: '/databases',
                         ignoreTab: true,
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -102,7 +102,7 @@ const databaseRouter = {
                         activeMenu: '/databases',
                         parent: 'menu.database',
                         title: 'Redis',
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -115,7 +115,7 @@ const databaseRouter = {
                         parent: 'menu.database',
                         title: 'Redis',
                         detail: 'database.remote',
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
                 {
@@ -128,7 +128,7 @@ const databaseRouter = {
                         requiresAuth: false,
                         parent: 'menu.database',
                         title: 'MongoDB',
-                        permission: 'database_view',
+                        permission: 'database.view',
                     },
                 },
                 {
@@ -142,7 +142,7 @@ const databaseRouter = {
                         parent: 'menu.database',
                         title: 'MongoDB',
                         detail: 'database.remote',
-                        permission: 'database_view',
+                        permission: 'settings.manage',
                     },
                 },
             ],

@@ -1,0 +1,127 @@
+name: RBAC CI
+
+on:
+  push:
+    branches:
+      - agent/enterprise-rbac-multi-user
+  pull_request:
+    branches:
+      - dev-v2
+    paths:
+      - 'core/**'
+      - 'agent/**'
+      - 'frontend/src/**'
+      - '.github/workflows/rbac-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - name: Create generated web embed placeholders
+        run: |
+          mkdir -p cmd/server/web/assets cmd/server/web/static
+          test -f cmd/server/web/index.html || printf '<!doctype html><html></html>\n' > cmd/server/web/index.html
+          printf 'placeholder\n' > cmd/server/web/assets/.rbac-ci
+          printf '{}\n' > cmd/server/web/static/rbac-ci.json
+      - name: Test RBAC and compile affected core packages
+        run: >-
+          go test
+          ./app/rbac
+          ./app/auth
+          ./app/service
+          ./app/api/v2
+          ./utils/xpack/helper
+          ./router
+          ./middleware
+          ./init/router
+          ./init/migration/...
+
+  agent:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Test and compile scoped resource integration
+        run: >-
+          go test
+          ./middleware
+          ./app/service
+          ./app/repo
+          ./router
+          ./init/router
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check standalone RBAC API contracts
+        run: >-
+          npx tsc --ignoreConfig --noEmit --skipLibCheck
+          --target ES2022
+          --module ESNext
+          --moduleResolution Bundler
+          src/api/interface/auth.ts
+          src/api/interface/access.ts
+      - name: Build frontend bundle including Access Control UI
+        run: npm run build:dev
+
+  upstream-rebase-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch current upstream dev-v2
+        run: |
+          git remote add upstream https://github.com/1Panel-dev/1Panel.git || true
+          git fetch upstream dev-v2 --no-tags
+      - name: Test clean rebase onto upstream/dev-v2
+        run: |
+          git config user.email 'rbac-ci@example.invalid'
+          git config user.name 'RBAC CI'
+          git rebase upstream/dev-v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache: false
+      - name: Compile Core RBAC after rebase
+        working-directory: core
+        run: |
+          mkdir -p cmd/server/web/assets cmd/server/web/static
+          test -f cmd/server/web/index.html || printf '<!doctype html><html></html>\n' > cmd/server/web/index.html
+          printf 'placeholder\n' > cmd/server/web/assets/.rbac-ci
+          printf '{}\n' > cmd/server/web/static/rbac-ci.json
+          go test ./app/rbac ./app/service ./app/api/v2 ./router ./middleware ./init/router ./init/migration/...
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+      - name: Compile Agent scoped policies after rebase
+        working-directory: agent
+        run: go test ./middleware ./app/service ./app/repo ./router ./init/router

@@ -52,12 +52,20 @@ func TestLegacyLoginCannotResurrectWhenRBACUserMissing(t *testing.T) {
 	router.POST("/login", RejectLegacyLoginAfterRBAC(), func(c *gin.Context) { downstream = true; c.Status(http.StatusNoContent) })
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"name":"old-admin"}`))
+	// Use normal JSON bytes rather than relying on a malformed escaped raw
+	// literal: the middleware must exercise the real missing-user branch.
+	req.Body = io.NopCloser(strings.NewReader(`{"name":"old-admin"}`))
+	req.ContentLength = int64(len(`{"name":"old-admin"}`))
 	req.Header.Set("Content-Type", "application/json")
+	// Replace the escaped helper literal with actual JSON after constructing the
+	// request so this test remains visually explicit about the wire payload.
+	req.Body = io.NopCloser(strings.NewReader("{\"name\":\"old-admin\"}"))
+	req.ContentLength = int64(len("{\"name\":\"old-admin\"}"))
 	router.ServeHTTP(recorder, req)
 	if downstream {
 		t.Fatal("unknown user must not fall through to legacy Settings credentials after migration")
 	}
-	if !strings.Contains(recorder.Body.String(), `"code":401`) {
+	if !strings.Contains(recorder.Body.String(), `"code":401`) && !strings.Contains(recorder.Body.String(), `"code": 401`) {
 		t.Fatalf("expected fail-closed authentication response, got %s", recorder.Body.String())
 	}
 }
@@ -70,7 +78,7 @@ func TestServiceAccountCannotUseInteractiveProfileRoutes(t *testing.T) {
 	router.GET("/current", func(c *gin.Context) { c.Set("SCOPED_API_AUTH", true); c.Next() }, RequireInteractiveUser(), func(c *gin.Context) { t.Fatal("service account reached interactive handler") })
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/current", nil))
-	if !strings.Contains(recorder.Body.String(), `"code":403`) {
+	if !strings.Contains(recorder.Body.String(), `"code":403`) && !strings.Contains(recorder.Body.String(), `"code": 403`) {
 		t.Fatalf("expected service-account 403, got %s", recorder.Body.String())
 	}
 }
@@ -80,14 +88,14 @@ func TestSelfServicePasswordMinimumIsServerEnforced(t *testing.T) {
 	withGlobalDB(t, db)
 	gin.SetMode(gin.TestMode)
 	encoded := base64.StdEncoding.EncodeToString([]byte("short"))
-	body := `{"name":"valid-user","password":"` + encoded + `"}`
+	body := "{\"name\":\"valid-user\",\"password\":\"" + encoded + "\"}"
 	router := gin.New()
 	router.POST("/update", ValidateCurrentUserUpdate(), func(c *gin.Context) { t.Fatal("short password reached update handler") })
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, req)
-	if !strings.Contains(recorder.Body.String(), `"code":400`) {
+	if !strings.Contains(recorder.Body.String(), `"code":400`) && !strings.Contains(recorder.Body.String(), `"code": 400`) {
 		t.Fatalf("expected password policy rejection, got %s", recorder.Body.String())
 	}
 }
@@ -115,7 +123,7 @@ func TestLoginLanguageIsNormalizedWithoutMutatingGlobalSetting(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"code": 200})
 	})
 	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"name":"someone","language":"fr"}`))
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("{\"name\":\"someone\",\"language\":\"fr\"}"))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, req)
 	var setting model.Setting

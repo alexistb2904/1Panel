@@ -67,6 +67,13 @@ func PageComposeForRBAC(req dto.SearchWithPage, allowed []string) (int64, []dto.
 	filtered := make([]dto.ComposeInfo, 0, len(items))
 	for _, item := range items {
 		if _, ok := allowedSet[item.Name]; ok {
+			// docker.compose.view must not disclose environment values or the
+			// host filesystem layout. Those details are either secret-bearing or
+			// infrastructure metadata and require a dedicated capability.
+			item.Env = ""
+			item.ConfigFile = ""
+			item.Workdir = ""
+			item.Path = ""
 			filtered = append(filtered, item)
 		}
 	}

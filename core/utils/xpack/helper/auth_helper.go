@@ -12,19 +12,35 @@ import (
 type authHelper struct{}
 
 func NewIAuthProvider() providers.AuthProvider { return &authHelper{} }
-func (a *authHelper) Login(c *gin.Context, info baseDto.Login, entrance string) (*baseDto.UserLoginInfo, string, error) { return auth.Login(c, info, entrance) }
-func (a *authHelper) MFALogin(c *gin.Context, info baseDto.MFALogin, entrance string) (*baseDto.UserLoginInfo, string, error) { return auth.MFALogin(c, info, entrance) }
-func (a *authHelper) PrepareLogout(_ *gin.Context) (*baseDto.LogoutResult, error) { return &baseDto.LogoutResult{}, nil }
-func (a *authHelper) PasskeyBeginLogin(c *gin.Context, entrance string) (*baseDto.PasskeyBeginResponse, string, error) { return auth.PasskeyBeginLogin(c, entrance) }
-func (a *authHelper) PasskeyFinishLogin(c *gin.Context, sessionID, entrance string) (*baseDto.UserLoginInfo, string, error) { return auth.PasskeyFinishLogin(c, sessionID, entrance) }
-func (a *authHelper) PasskeyBeginRegister(c *gin.Context, name string) (*baseDto.PasskeyBeginResponse, string, error) { return auth.PasskeyBeginRegister(c, name) }
-func (a *authHelper) PasskeyFinishRegister(c *gin.Context, sessionID string) (string, error) { return auth.PasskeyFinishRegister(c, sessionID) }
+func (a *authHelper) Login(c *gin.Context, info baseDto.Login, entrance string) (*baseDto.UserLoginInfo, string, error) {
+	return auth.Login(c, info, entrance)
+}
+func (a *authHelper) MFALogin(c *gin.Context, info baseDto.MFALogin, entrance string) (*baseDto.UserLoginInfo, string, error) {
+	return auth.MFALogin(c, info, entrance)
+}
+func (a *authHelper) PrepareLogout(_ *gin.Context) (*baseDto.LogoutResult, error) {
+	return &baseDto.LogoutResult{}, nil
+}
+func (a *authHelper) PasskeyBeginLogin(c *gin.Context, entrance string) (*baseDto.PasskeyBeginResponse, string, error) {
+	return auth.PasskeyBeginLogin(c, entrance)
+}
+func (a *authHelper) PasskeyFinishLogin(c *gin.Context, sessionID, entrance string) (*baseDto.UserLoginInfo, string, error) {
+	return auth.PasskeyFinishLogin(c, sessionID, entrance)
+}
+func (a *authHelper) PasskeyBeginRegister(c *gin.Context, name string) (*baseDto.PasskeyBeginResponse, string, error) {
+	return auth.PasskeyBeginRegister(c, name)
+}
+func (a *authHelper) PasskeyFinishRegister(c *gin.Context, sessionID string) (string, error) {
+	return auth.PasskeyFinishRegister(c, sessionID)
+}
 func (a *authHelper) PasskeyList(c *gin.Context) ([]baseDto.PasskeyInfo, error) { return auth.PasskeyList() }
-func (a *authHelper) PasskeyDelete(c *gin.Context, id string) error { return auth.PasskeyDelete(id) }
-func (a *authHelper) PasskeyStatus(c *gin.Context) bool { return auth.PasskeyStatus(c) }
-func (a *authHelper) ClearPasskeys() error { return nil }
-func (a *authHelper) ResetSuperAdminUser(name, password string) error { return nil }
-func (a *authHelper) CoreAPIAuthMiddleware() gin.HandlerFunc { return auth.APIAuthMiddleware(auth.LoadAPIAuthConfig, nil) }
+func (a *authHelper) PasskeyDelete(c *gin.Context, id string) error         { return auth.PasskeyDelete(id) }
+func (a *authHelper) PasskeyStatus(c *gin.Context) bool                     { return auth.PasskeyStatus(c) }
+func (a *authHelper) ClearPasskeys() error                                  { return nil }
+func (a *authHelper) ResetSuperAdminUser(name, password string) error       { return nil }
+func (a *authHelper) CoreAPIAuthMiddleware() gin.HandlerFunc {
+	return auth.APIAuthMiddleware(auth.LoadAPIAuthConfig, nil)
+}
 
 func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 	return []gin.HandlerFunc{
@@ -32,6 +48,7 @@ func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 		rbac.IdentityMiddleware(),
 		rbac.MandatoryMFAGate(),
 		rbac.AgentResourceAuthorizationMiddleware(),
+		rbac.RuntimeProjectBindingMiddleware(),
 		rbac.ScopedApplicationAuthorizationMiddleware(),
 		rbac.DockerAuthorizationMiddlewareV3(),
 		rbac.FileAuthorizationMiddleware(),
@@ -40,14 +57,34 @@ func (a *authHelper) CoreRBACMiddlewares() []gin.HandlerFunc {
 	}
 }
 
-func (a *authHelper) LoadMFA(c *gin.Context, req baseDto.MfaRequest) (mfa.Otp, error) { return auth.LoadMFAForContext(c, req) }
-func (a *authHelper) MFABind(c *gin.Context, req baseDto.MfaCredential) error { return auth.MFABindForContext(c, req) }
+func (a *authHelper) LoadMFA(c *gin.Context, req baseDto.MfaRequest) (mfa.Otp, error) {
+	return auth.LoadMFAForContext(c, req)
+}
+func (a *authHelper) MFABind(c *gin.Context, req baseDto.MfaCredential) error {
+	return auth.MFABindForContext(c, req)
+}
 func (a *authHelper) MFAClose(c *gin.Context) error { return auth.MFACloseForContext(c) }
-func (a *authHelper) GenerateApiKey(_ *gin.Context) (string, error) { return auth.GenerateApiKey() }
-func (a *authHelper) UpdateApiConfig(_ *gin.Context, req baseDto.ApiInterfaceConfig) error { return auth.UpdateApiConfig(req) }
-func (a *authHelper) GetCurrentUserInfo(c *gin.Context) (*baseDto.CurrentUserInfo, error) { return auth.GetSafeCurrentUserInfo(c) }
-func (a *authHelper) ShouldCheckPasswordExpiration(c *gin.Context) (bool, error) { return auth.ShouldCheckPasswordExpiration(c) }
-func (a *authHelper) LoadPasswordExpirationTime(c *gin.Context) (string, error) { return auth.LoadPasswordExpirationTimeForContext(c) }
-func (a *authHelper) SyncPasswordExpirationTime(expirationDays string) error { return auth.SyncPasswordExpirationTime(expirationDays) }
-func (a *authHelper) UpdateCurrentUserInfo(c *gin.Context, req baseDto.CurrentUserUpdate) error { return auth.UpdateCurrentUserInfoForContext(c, req) }
-func (a *authHelper) HandlePasswordExpired(c *gin.Context, old, new string) error { return auth.HandlePasswordExpiredForContext(c, old, new) }
+func (a *authHelper) GenerateApiKey(_ *gin.Context) (string, error) {
+	return auth.GenerateApiKey()
+}
+func (a *authHelper) UpdateApiConfig(_ *gin.Context, req baseDto.ApiInterfaceConfig) error {
+	return auth.UpdateApiConfig(req)
+}
+func (a *authHelper) GetCurrentUserInfo(c *gin.Context) (*baseDto.CurrentUserInfo, error) {
+	return auth.GetSafeCurrentUserInfo(c)
+}
+func (a *authHelper) ShouldCheckPasswordExpiration(c *gin.Context) (bool, error) {
+	return auth.ShouldCheckPasswordExpiration(c)
+}
+func (a *authHelper) LoadPasswordExpirationTime(c *gin.Context) (string, error) {
+	return auth.LoadPasswordExpirationTimeForContext(c)
+}
+func (a *authHelper) SyncPasswordExpirationTime(expirationDays string) error {
+	return auth.SyncPasswordExpirationTime(expirationDays)
+}
+func (a *authHelper) UpdateCurrentUserInfo(c *gin.Context, req baseDto.CurrentUserUpdate) error {
+	return auth.UpdateCurrentUserInfoForContext(c, req)
+}
+func (a *authHelper) HandlePasswordExpired(c *gin.Context, old, new string) error {
+	return auth.HandlePasswordExpiredForContext(c, old, new)
+}

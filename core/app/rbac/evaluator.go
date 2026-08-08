@@ -105,7 +105,8 @@ func (e *Evaluator) PermissionCodes(userID uint) ([]string, error) {
 }
 
 // AccessibleResourceIDs always applies the requested node, including node 0
-// (local/master). Node 0 is a real authorization scope, never a wildcard.
+// (local/master). Pending ownership reservations never become authorization
+// grants until the downstream resource creation has completed successfully.
 func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceType string, nodeID uint) (ResourceFilter, error) {
 	active, err := e.isActiveUser(userID)
 	if err != nil || !active {
@@ -132,9 +133,6 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 				return ResourceFilter{All: true}, nil
 			}
 		case model.AccessScopeResource:
-			// Direct resource scopes are intentionally disabled. Human-readable
-			// stable names can be deleted and recreated and are therefore not an
-			// immutable authorization identity.
 			continue
 		case model.AccessScopeProject:
 			projectID, err := strconv.ParseUint(binding.ScopeID, 10, 64)
@@ -150,7 +148,7 @@ func (e *Evaluator) AccessibleResourceIDs(userID uint, permissionCode, resourceT
 			}
 			var projectIDs []string
 			if err := e.db.Model(&model.AccessProjectResource{}).
-				Where("project_id = ? AND resource_type = ? AND node_id = ?", uint(projectID), resourceType, nodeID).
+				Where("project_id = ? AND resource_type = ? AND node_id = ? AND state = ?", uint(projectID), resourceType, nodeID, model.AccessResourceStateActive).
 				Pluck("resource_id", &projectIDs).Error; err != nil {
 				return ResourceFilter{}, fmt.Errorf("resolve project resources: %w", err)
 			}
@@ -212,17 +210,17 @@ func (e *Evaluator) bindingMatches(binding model.AccessRoleBinding, resource Res
 			return false, err
 		}
 		if resource.Type == "project" && resource.ID == binding.ScopeID {
-			return true, nil
-		}
-		if resource.ProjectID != 0 {
-			return uint(projectID) == resource.ProjectID, nil
+			return resource.ProjectID == 0 || uint(projectID) == resource.ProjectID, nil
 		}
 		if resource.Type == "" || resource.ID == "" {
 			return false, nil
 		}
+		if resource.ProjectID != 0 && uint(projectID) != resource.ProjectID {
+			return false, nil
+		}
 		var count int64
 		if err := e.db.Model(&model.AccessProjectResource{}).
-			Where("project_id = ? AND resource_type = ? AND resource_id = ? AND node_id = ?", uint(projectID), resource.Type, resource.ID, resource.NodeID).
+			Where("project_id = ? AND resource_type = ? AND resource_id = ? AND node_id = ? AND state = ?", uint(projectID), resource.Type, resource.ID, resource.NodeID, model.AccessResourceStateActive).
 			Count(&count).Error; err != nil {
 			return false, fmt.Errorf("check project resource membership: %w", err)
 		}

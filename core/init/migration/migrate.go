@@ -20,6 +20,7 @@ func Init() {
 		migrations.CleanupImplicitLocalProjectNodes,
 		migrations.AddCommunityRBACResourceState,
 		migrations.HardenCommunityRBACDefaultRoles,
+		migrations.HardenCommunityRBACDefaultRolesV2,
 		migrations.InitOneDrive,
 		migrations.InitHost,
 		migrations.InitTerminalSetting,

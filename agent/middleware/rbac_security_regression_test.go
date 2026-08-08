@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
+	"github.com/1Panel-dev/1Panel/agent/app/dto/request"
+	"github.com/1Panel-dev/1Panel/agent/app/dto/response"
 	"github.com/1Panel-dev/1Panel/agent/app/model"
 )
 
@@ -44,7 +46,7 @@ func TestRestrictedComposeAllowsUnprivilegedHostPort(t *testing.T) {
 	if err := validateRestrictedComposeExtraPolicy(compose); err != nil { t.Fatalf("ordinary unprivileged application port should remain available: %v", err) }
 }
 
-func TestRestrictedComposeRejectsHostGatewayAndInclude(t *testing.T) {
+func TestRestrictedComposeRejectsHostGatewayIncludeAndSysctls(t *testing.T) {
 	for name, compose := range map[string]string{
 		"host-gateway": `services:
   web:
@@ -57,6 +59,12 @@ func TestRestrictedComposeRejectsHostGatewayAndInclude(t *testing.T) {
 services:
   web:
     image: nginx:alpine
+`,
+		"sysctls": `services:
+  web:
+    image: nginx:alpine
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -85,6 +93,15 @@ func TestRestrictedWebsiteCreationHasNoImplicitCrossResourceSideEffects(t *testi
 	if err := validateRestrictedWebsiteCreation(map[string]any{}); err != nil { t.Fatalf("plain side-effect-free website creation should remain allowed: %v", err) }
 }
 
+func TestScopedWebsiteAliasMustAlreadyBeCanonical(t *testing.T) {
+	for _, valid := range []string{"api", "api-v2", "www.example", "tenant_01"} {
+		if !scopedWebsiteAliasPattern.MatchString(valid) { t.Fatalf("canonical alias %q rejected", valid) }
+	}
+	for _, invalid := range []string{"équipe", "with,comma", "../escape", " leading", ""} {
+		if scopedWebsiteAliasPattern.MatchString(invalid) { t.Fatalf("non-canonical alias %q accepted", invalid) }
+	}
+}
+
 func TestScopedWebsiteTLSViewRedactsPrivateMaterial(t *testing.T) {
 	ssl := model.WebsiteSSL{
 		PrivateKey: "PRIVATE", Pem: "CERT", CertURL: "secret-url", DnsAccountID: 7, AcmeAccountID: 8, CaID: 9,
@@ -101,4 +118,22 @@ func TestScopedWebsiteTLSViewRedactsPrivateMaterial(t *testing.T) {
 		t.Fatal("TLS account/cross-resource metadata survived scoped redaction")
 	}
 	if ssl.AcmeAccount.ID != 0 || ssl.DnsAccount.ID != 0 { t.Fatal("nested TLS account objects survived redaction") }
+}
+
+func TestScopedRuntimeViewRedactsSecretsAndHostTopology(t *testing.T) {
+	item := response.RuntimeDTO{
+		Params: map[string]interface{}{"TOKEN": "secret"},
+		AppParams: []response.AppParam{{Key: "PASSWORD", Value: "secret"}},
+		Environments: []request.Environment{{Key: "TOKEN", Value: "secret"}},
+		Volumes: []request.Volume{{Source: "/srv/private", Target: "/app"}},
+		ExtraHosts: []request.ExtraHost{{Host: "internal", IP: "127.0.0.1"}},
+		CodeDir: "/srv/project/code", Path: "/opt/1panel/runtime/internal", Container: "secret-container", Source: "https://internal/package",
+	}
+	redactRuntimeDTOForRBAC(&item)
+	if len(item.Params) != 0 || len(item.AppParams) != 0 || len(item.Environments) != 0 || len(item.Volumes) != 0 || len(item.ExtraHosts) != 0 {
+		t.Fatal("runtime secret-bearing collections survived runtime.view redaction")
+	}
+	if item.CodeDir != "" || item.Path != "" || item.Container != "" || item.Source != "" {
+		t.Fatal("runtime host topology survived runtime.view redaction")
+	}
 }

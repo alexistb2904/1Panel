@@ -126,7 +126,7 @@ func TestScopedRuntimeViewRedactsSecretsAndHostTopology(t *testing.T) {
 		AppParams: []response.AppParam{{Key: "PASSWORD", Value: "secret"}},
 		Environments: []request.Environment{{Key: "TOKEN", Value: "secret"}},
 		Volumes: []request.Volume{{Source: "/srv/private", Target: "/app"}},
-		ExtraHosts: []request.ExtraHost{{Host: "internal", IP: "127.0.0.1"}},
+		ExtraHosts: []request.ExtraHost{{Hostname: "internal", IP: "127.0.0.1"}},
 		CodeDir: "/srv/project/code", Path: "/opt/1panel/runtime/internal", Container: "secret-container", Source: "https://internal/package",
 	}
 	redactRuntimeDTOForRBAC(&item)

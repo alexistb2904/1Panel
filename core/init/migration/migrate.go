@@ -21,6 +21,7 @@ func Init() {
 		migrations.AddCommunityRBACResourceState,
 		migrations.HardenCommunityRBACDefaultRoles,
 		migrations.HardenCommunityRBACDefaultRolesV2,
+		migrations.HardenCommunityRBACDefaultRolesV3,
 		migrations.InitOneDrive,
 		migrations.InitHost,
 		migrations.InitTerminalSetting,

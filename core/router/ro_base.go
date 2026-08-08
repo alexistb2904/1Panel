@@ -34,10 +34,10 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 		authRouter.POST("/mfa/bind", baseApi.MFABind)
 		authRouter.POST("/mfa/close", baseApi.MFAClose)
 
-		adminAuthRouter.POST("/passkey/register/begin", baseApi.PasskeyRegisterBegin)
-		adminAuthRouter.POST("/passkey/register/finish", baseApi.PasskeyRegisterFinish)
-		adminAuthRouter.GET("/passkey/list", baseApi.PasskeyList)
-		adminAuthRouter.POST("/passkey/del", baseApi.PasskeyDelete)
+		adminAuthRouter.POST("/passkey/register/begin", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyRegisterBegin)
+		adminAuthRouter.POST("/passkey/register/finish", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyRegisterFinish)
+		adminAuthRouter.GET("/passkey/list", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyList)
+		adminAuthRouter.POST("/passkey/del", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyDelete)
 
 		adminAuthRouter.POST("/api/generate", baseApi.GenerateApiKey)
 		adminAuthRouter.POST("/api/update", baseApi.UpdateApiConfig)

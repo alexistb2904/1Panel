@@ -28,7 +28,12 @@ func IdentityMiddleware() gin.HandlerFunc {
 		accessUser, err := accessUserForSession(sessionUser)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) && sessionUser.ID == psession.SuperAdminSessionUserID {
-				c.Next()
+				if !CommunityRBACEnabled() {
+					c.Next()
+					return
+				}
+				_ = global.SESSION.DeleteByID(sessionUser.ID)
+				deny(c, http.StatusUnauthorized, "Legacy administrator sessions are invalid after the Community RBAC migration")
 				return
 			}
 			deny(c, http.StatusUnauthorized, "RBAC identity is not available")
@@ -88,8 +93,10 @@ func accessUserForSession(sessionUser psession.SessionUser) (model.AccessUser, e
 }
 
 func deny(c *gin.Context, code int, message string) {
-	if userID, ok := CurrentUserID(c); ok {
-		AuditDecision(c, userID, "request.denied", "deny", "request", c.Request.URL.Path, 0, 0, message)
+	if _, alreadyRecorded := c.Get(auditDenyRecordedKey); !alreadyRecorded {
+		if userID, ok := CurrentUserID(c); ok {
+			AuditDecision(c, userID, "request.denied", "deny", "request", c.Request.URL.Path, 0, 0, message)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"code": code, "message": message})
 	c.Abort()

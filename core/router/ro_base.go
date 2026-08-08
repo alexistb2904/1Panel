@@ -24,7 +24,7 @@ func (s *BaseRouter) InitRouter(Router *gin.RouterGroup) {
 		baseRouter.GET("/captcha", baseApi.Captcha)
 		baseRouter.POST("/passkey/begin", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyBeginLogin)
 		baseRouter.POST("/passkey/finish", rbac.DisableLegacyPasskeyLoginAfterRBAC(), baseApi.PasskeyFinishLogin)
-		baseRouter.POST("/mfalogin", baseApi.MFALogin)
+		baseRouter.POST("/mfalogin", rbac.RequireCommunityMFASessionAfterRBAC(), baseApi.MFALogin)
 		baseRouter.POST("/login", rbac.PreserveGlobalLanguageOnLogin(), rbac.RejectLegacyLoginAfterRBAC(), baseApi.Login)
 		baseRouter.POST("/logout", baseApi.LogOut)
 		baseRouter.GET("/setting", baseApi.GetLoginSetting)

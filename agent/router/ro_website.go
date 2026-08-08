@@ -6,11 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type WebsiteRouter struct {
-}
+type WebsiteRouter struct{}
 
 func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
-	websiteRouter := Router.Group("websites").Use(middleware.WebsiteRBAC())
+	websiteRouter := Router.Group("websites").Use(middleware.WebsiteRBAC(), middleware.WebsiteRestrictedExecution())
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{

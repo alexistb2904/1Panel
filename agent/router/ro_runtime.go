@@ -6,11 +6,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type RuntimeRouter struct {
-}
+type RuntimeRouter struct{}
 
 func (r *RuntimeRouter) InitRouter(Router *gin.RouterGroup) {
-	groupRouter := Router.Group("runtimes").Use(middleware.RuntimeRBAC())
+	groupRouter := Router.Group("runtimes").Use(middleware.RuntimeRBAC(), middleware.RuntimeRestrictedExecution())
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{

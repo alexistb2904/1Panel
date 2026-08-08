@@ -2,16 +2,46 @@ package rbac
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	auditDenyRecordedKey = "rbac_deny_audit_recorded"
+	auditDenyWindow      = time.Minute
+	auditDenyBurst       = 30
+	auditLimiterMaxKeys  = 4096
+)
+
+type auditWindow struct {
+	started time.Time
+	count   int
+}
+
+var denyAuditLimiter = struct {
+	sync.Mutex
+	items map[string]auditWindow
+}{items: make(map[string]auditWindow)}
+
 func AuditDecision(c *gin.Context, subjectID uint, action, decision, resourceType, resourceID string, nodeID, projectID uint, reason string) {
 	if global.DB == nil {
 		return
+	}
+	if strings.EqualFold(strings.TrimSpace(decision), "deny") {
+		if c != nil {
+			// Mark the request before rate limiting so deny() does not emit a
+			// duplicate event for the same authorization decision.
+			c.Set(auditDenyRecordedKey, true)
+		}
+		if !allowDenyAudit(subjectID, action, resourceType, resourceID, c) {
+			return
+		}
 	}
 	subjectType := "user"
 	if c != nil {
@@ -48,6 +78,42 @@ func AuditDecision(c *gin.Context, subjectID uint, action, decision, resourceTyp
 	if err := global.DB.Create(&event).Error; err != nil {
 		global.LOG.Warnf("write RBAC audit event failed: %v", err)
 	}
+}
+
+func allowDenyAudit(subjectID uint, action, resourceType, resourceID string, c *gin.Context) bool {
+	path := ""
+	if c != nil && c.Request != nil {
+		path = c.Request.URL.Path
+	}
+	key := fmt.Sprintf("%d|%s|%s|%s|%s", subjectID, action, resourceType, resourceID, path)
+	now := time.Now()
+	denyAuditLimiter.Lock()
+	defer denyAuditLimiter.Unlock()
+
+	if len(denyAuditLimiter.items) >= auditLimiterMaxKeys {
+		cutoff := now.Add(-auditDenyWindow)
+		for existingKey, window := range denyAuditLimiter.items {
+			if window.started.Before(cutoff) {
+				delete(denyAuditLimiter.items, existingKey)
+			}
+		}
+		// Stay bounded even under a stream of unique denied paths/resources.
+		if len(denyAuditLimiter.items) >= auditLimiterMaxKeys {
+			return false
+		}
+	}
+
+	window, ok := denyAuditLimiter.items[key]
+	if !ok || now.Sub(window.started) >= auditDenyWindow {
+		denyAuditLimiter.items[key] = auditWindow{started: now, count: 1}
+		return true
+	}
+	if window.count >= auditDenyBurst {
+		return false
+	}
+	window.count++
+	denyAuditLimiter.items[key] = window
+	return true
 }
 
 func AuditMutation(c *gin.Context, action, resourceType, resourceID string, metadata map[string]any) {

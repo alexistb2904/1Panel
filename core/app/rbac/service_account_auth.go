@@ -20,6 +20,8 @@ import (
 const GinContextScopedAPIAuthKey = "SCOPED_API_AUTH"
 const GinContextRBACSubjectTypeKey = "rbac_subject_type"
 
+const serviceCredentialLastUsedWriteInterval = time.Minute
+
 // ServiceAccountAuthMiddleware accepts tokens formatted as
 // `Bearer 1ps_<key-id>_<secret>`. The secret is never stored in plaintext.
 func ServiceAccountAuthMiddleware() gin.HandlerFunc {
@@ -40,7 +42,8 @@ func ServiceAccountAuthMiddleware() gin.HandlerFunc {
 			deny(c, http.StatusUnauthorized, "Unknown or disabled service account credential")
 			return
 		}
-		if credential.ExpiresAt != nil && time.Now().After(*credential.ExpiresAt) {
+		now := time.Now()
+		if credential.ExpiresAt != nil && now.After(*credential.ExpiresAt) {
 			deny(c, http.StatusUnauthorized, "Service account credential has expired")
 			return
 		}
@@ -64,8 +67,16 @@ func ServiceAccountAuthMiddleware() gin.HandlerFunc {
 			deny(c, http.StatusInternalServerError, "Unable to load service account identity")
 			return
 		}
-		now := time.Now()
-		_ = global.DB.Model(&credential).Update("last_used_at", &now).Error
+
+		// last_used_at is observability metadata, not part of authorization. Do
+		// not turn every valid API call into a database write. A conditional
+		// update keeps the timestamp fresh to minute precision and remains safe
+		// under concurrent requests without an in-process cache.
+		cutoff := now.Add(-serviceCredentialLastUsedWriteInterval)
+		_ = global.DB.Model(&model.AccessServiceCredential{}).
+			Where("id = ? AND (last_used_at IS NULL OR last_used_at < ?)", credential.ID, cutoff).
+			Update("last_used_at", &now).Error
+
 		c.Set(GinContextAccessUserIDKey, user.ID)
 		c.Set(GinContextScopedAPIAuthKey, true)
 		c.Set(GinContextRBACSubjectTypeKey, "service_account")
@@ -169,15 +180,9 @@ func serviceAccountIPAllowed(clientIP, raw string) bool {
 	}
 	for _, item := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == ';' }) {
 		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		if candidate := net.ParseIP(item); candidate != nil && candidate.Equal(ip) {
-			return true
-		}
-		if _, network, err := net.ParseCIDR(item); err == nil && network.Contains(ip) {
-			return true
-		}
+		if item == "" { continue }
+		if candidate := net.ParseIP(item); candidate != nil && candidate.Equal(ip) { return true }
+		if _, network, err := net.ParseCIDR(item); err == nil && network.Contains(ip) { return true }
 	}
 	return false
 }

@@ -54,19 +54,14 @@ func DockerAuthorizationMiddlewareV3() gin.HandlerFunc {
 			deny(c, http.StatusBadRequest, "Unable to parse Docker authorization target")
 			return
 		}
-		if body != nil {
-			c.Request.Body = io.NopCloser(bytes.NewReader(body))
-		}
+		if body != nil { c.Request.Body = io.NopCloser(bytes.NewReader(body)) }
 		if ctx.Permission == "" {
 			deny(c, http.StatusPreconditionFailed, "This Docker operation is administrator-only")
 			return
 		}
 		if ctx.Creating {
 			project, err := authorizeDockerProjectCreationAtNode(evaluator, userID, nodeID, ctx)
-			if err != nil {
-				deny(c, http.StatusPreconditionFailed, err.Error())
-				return
-			}
+			if err != nil { deny(c, http.StatusPreconditionFailed, err.Error()); return }
 			resourceID := ctx.Targets[0]
 			if resourceID != "__compose_test__" {
 				if _, err := projectResourceOwnedBy(project.ID, nodeID, ctx.ResourceType, resourceID); err != nil {
@@ -75,20 +70,19 @@ func DockerAuthorizationMiddlewareV3() gin.HandlerFunc {
 				}
 			}
 			setAgentRBACHeaders(c, userID, ctx.Permission, ctx.ResourceType, ResourceFilter{IDs: ctx.Targets})
-			if err := setProjectTransportHeaders(c, project, nodeID); err != nil {
-				deny(c, http.StatusPreconditionFailed, err.Error())
-				return
-			}
+			if err := setProjectTransportHeaders(c, project, nodeID); err != nil { deny(c, http.StatusPreconditionFailed, err.Error()); return }
 			ContinueCreationWithOwnership(c, project.ID, nodeID, ctx.ResourceType, resourceID)
 			return
 		}
 		filter, err := evaluator.AccessibleResourceIDs(userID, ctx.Permission, ctx.ResourceType, nodeID)
-		if err != nil {
-			deny(c, http.StatusInternalServerError, "Unable to resolve Docker resource scope")
-			return
-		}
+		if err != nil { deny(c, http.StatusInternalServerError, "Unable to resolve Docker resource scope"); return }
 		setAgentRBACHeaders(c, userID, ctx.Permission, ctx.ResourceType, filter)
 		c.Request.Header.Set(HeaderRBACRestricted, "1")
+		if isDockerOwnershipLifecycleMutation(c, ctx) {
+			if body != nil { c.Request.Body = io.NopCloser(bytes.NewReader(body)) }
+			ContinueDockerOwnershipLifecycle(c, nodeID, ctx, body)
+			return
+		}
 		c.Next()
 	}
 }
@@ -102,11 +96,7 @@ func authorizeDockerProjectCreationAtNode(evaluator *Evaluator, userID, nodeID u
 		return model.AccessProject{}, errors.New("Docker creation is not allowed for this project on the selected node")
 	}
 	var project model.AccessProject
-	if err := global.DB.First(&project, ctx.ProjectID).Error; err != nil {
-		return model.AccessProject{}, errors.New("project does not exist")
-	}
-	if project.Status != "active" {
-		return model.AccessProject{}, errors.New("project is not active")
-	}
+	if err := global.DB.First(&project, ctx.ProjectID).Error; err != nil { return model.AccessProject{}, errors.New("project does not exist") }
+	if project.Status != "active" { return model.AccessProject{}, errors.New("project is not active") }
 	return project, nil
 }

@@ -2,6 +2,8 @@ package rbac
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -60,51 +62,27 @@ func AgentResourceAuthorizationMiddleware() gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodPost && strings.TrimSuffix(c.Request.URL.Path, "/") == "/api/v2/websites" {
 			body, payload, err := readJSONBody(c)
-			if err != nil {
-				deny(c, http.StatusBadRequest, "Unable to parse website creation target")
-				return
-			}
+			if err != nil { deny(c, http.StatusBadRequest, "Unable to parse website creation target"); return }
 			c.Request.Body = io.NopCloser(bytes.NewReader(body))
 			projectID := projectIDFromPayload(payload)
 			alias := strings.TrimSpace(stringValue(payload["alias"]))
 			resourceID := "website:" + alias
-			if projectID == 0 || alias == "" {
-				deny(c, http.StatusPreconditionFailed, "projectID and website alias are required")
-				return
-			}
+			if projectID == 0 || alias == "" { deny(c, http.StatusPreconditionFailed, "projectID and website alias are required"); return }
 			allowed, err := evaluator.Can(userID, "website.create", ResourceContext{NodeID: nodeID, ProjectID: projectID, Type: "project", ID: strconv.FormatUint(uint64(projectID), 10)})
-			if err != nil || !allowed {
-				deny(c, http.StatusPreconditionFailed, "Website creation is not allowed in this project on the selected node")
-				return
-			}
+			if err != nil || !allowed { deny(c, http.StatusPreconditionFailed, "Website creation is not allowed in this project on the selected node"); return }
 			var project model.AccessProject
-			if err := global.DB.First(&project, projectID).Error; err != nil || project.Status != "active" {
-				deny(c, http.StatusPreconditionFailed, "Project is not active")
-				return
-			}
-			if _, err := projectResourceOwnedBy(projectID, nodeID, "website", resourceID); err != nil {
-				deny(c, http.StatusPreconditionFailed, err.Error())
-				return
-			}
+			if err := global.DB.First(&project, projectID).Error; err != nil || project.Status != "active" { deny(c, http.StatusPreconditionFailed, "Project is not active"); return }
+			if _, err := projectResourceOwnedBy(projectID, nodeID, "website", resourceID); err != nil { deny(c, http.StatusPreconditionFailed, err.Error()); return }
 			setAgentRBACHeaders(c, userID, "website.create", "website", ResourceFilter{IDs: []string{resourceID}})
-			if err := setProjectTransportHeaders(c, project, nodeID); err != nil {
-				deny(c, http.StatusPreconditionFailed, err.Error())
-				return
-			}
+			if err := setProjectTransportHeaders(c, project, nodeID); err != nil { deny(c, http.StatusPreconditionFailed, err.Error()); return }
 			ContinueCreationWithOwnership(c, projectID, nodeID, "website", resourceID)
 			return
 		}
 
 		permission, ok := websitePermissionForRequest(c.Request.Method, c.Request.URL.Path)
-		if !ok {
-			deny(c, http.StatusPreconditionFailed, "This website operation is restricted to administrators until an explicit RBAC policy is defined")
-			return
-		}
+		if !ok { deny(c, http.StatusPreconditionFailed, "This website operation is restricted to administrators until an explicit RBAC policy is defined"); return }
 		filter, err := evaluator.AccessibleResourceIDs(userID, permission, "website", nodeID)
-		if err != nil {
-			deny(c, http.StatusInternalServerError, "Unable to resolve website scope")
-			return
-		}
+		if err != nil { deny(c, http.StatusInternalServerError, "Unable to resolve website scope"); return }
 		setAgentRBACHeaders(c, userID, permission, "website", filter)
 		c.Next()
 	}
@@ -119,9 +97,7 @@ func clearAgentRBACHeaders(c *gin.Context) {
 func setAgentRBACHeaders(c *gin.Context, userID uint, permission, resourceType string, filter ResourceFilter) {
 	c.Request.Header.Set(HeaderRBACPermission, permission)
 	c.Request.Header.Set(HeaderRBACResourceType, resourceType)
-	if userID != 0 {
-		c.Request.Header.Set(HeaderRBACUserID, strconv.FormatUint(uint64(userID), 10))
-	}
+	if userID != 0 { c.Request.Header.Set(HeaderRBACUserID, strconv.FormatUint(uint64(userID), 10)) }
 	if filter.All {
 		c.Request.Header.Set(HeaderRBACMode, RBACModeAll)
 		c.Request.Header.Del(HeaderRBACResourceIDs)
@@ -132,8 +108,21 @@ func setAgentRBACHeaders(c *gin.Context, userID uint, permission, resourceType s
 		c.Request.Header.Del(HeaderRBACResourceIDs)
 		return
 	}
+	encoded, err := encodeRBACResourceIDs(filter.IDs)
+	if err != nil {
+		// Serialization errors must never widen scope.
+		c.Request.Header.Set(HeaderRBACMode, RBACModeNone)
+		c.Request.Header.Del(HeaderRBACResourceIDs)
+		return
+	}
 	c.Request.Header.Set(HeaderRBACMode, RBACModeIDs)
-	c.Request.Header.Set(HeaderRBACResourceIDs, strings.Join(filter.IDs, ","))
+	c.Request.Header.Set(HeaderRBACResourceIDs, encoded)
+}
+
+func encodeRBACResourceIDs(ids []string) (string, error) {
+	raw, err := json.Marshal(ids)
+	if err != nil { return "", err }
+	return "b64:" + base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 func websitePermissionForRequest(method, fullPath string) (string, bool) {

@@ -30,13 +30,12 @@ var DefaultRoleDefinitions = []RoleDefinition{
 	},
 	{
 		Key: RoleDeveloper, Name: "Developer",
-		Description: "Autonomous application developer on assigned projects without global host or access-control privileges.",
+		Description: "Autonomous application developer on assigned projects without global host, raw filesystem or access-control administration.",
 		Sort: 20,
 		Permissions: []string{
 			"project.view",
 			"website.view", "website.create", "website.update", "website.delete",
 			"website.domain.view", "website.domain.manage",
-			"website.files.read", "website.files.write", "website.files.delete",
 			"website.logs.view",
 			"website.runtime.view", "website.runtime.restart",
 			"website.config.view", "website.config.edit",
@@ -63,12 +62,11 @@ var DefaultRoleDefinitions = []RoleDefinition{
 	},
 	{
 		Key: RoleUser, Name: "User",
-		Description: "Operational user on assigned sites: can work with site files and inspect the application without infrastructure administration rights.",
+		Description: "Operational read-only user on assigned sites. Raw host filesystem access is intentionally excluded until fd-relative confinement is available.",
 		Sort: 40,
 		Permissions: []string{
 			"project.view",
 			"website.view", "website.domain.view",
-			"website.files.read", "website.files.write", "website.files.delete",
 			"website.logs.view", "website.runtime.view", "website.ssl.view",
 		},
 	},

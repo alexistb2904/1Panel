@@ -2,16 +2,21 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/1Panel-dev/1Panel/agent/app/api/v2/helper"
+	"github.com/1Panel-dev/1Panel/agent/app/dto/response"
+	"github.com/1Panel-dev/1Panel/agent/app/service"
 	"github.com/gin-gonic/gin"
 )
 
-// RuntimeRestrictedExecution keeps generic project runtime lifecycle operations
-// available while denying specialized package/config/process controls whose
-// execution boundary is the host/runtime engine rather than the Core project.
-// These can be re-enabled only after their command/file targets are represented
-// as explicit project-owned capabilities.
+// RuntimeRestrictedExecution keeps generic project runtime read/update/operate
+// operations available while denying specialized package/config/process
+// controls whose execution boundary is the host/runtime engine rather than the
+// Core project. Runtime create/delete are also held admin-only for scoped users:
+// upstream executes those lifecycles asynchronously, so Core cannot safely
+// activate/remove ownership based on the immediate HTTP acknowledgement.
 func RuntimeRestrictedExecution() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.GetHeader(headerInternalRequest) == "1" || c.GetHeader(headerRBACMode) == rbacModeAll {
@@ -25,7 +30,28 @@ func RuntimeRestrictedExecution() gin.HandlerFunc {
 		}
 
 		path := strings.TrimPrefix(c.Request.URL.Path, "/api/v2/runtimes")
+		if c.Request.Method == http.MethodGet {
+			if id, ok := scopedRuntimeDetailID(path); ok {
+				data, err := service.NewRuntimeService().Get(id)
+				if err != nil {
+					helper.InternalServer(c, err)
+					c.Abort()
+					return
+				}
+				redactRuntimeDTOForRBAC(data)
+				helper.SuccessWithData(c, data)
+				c.Abort()
+				return
+			}
+		}
+
 		switch {
+		case path == "" && c.Request.Method == http.MethodPost:
+			denyRuntimeAccess(c, "Runtime creation is administrator-only until asynchronous task completion is bound to ownership activation")
+			return
+		case path == "/del" && c.Request.Method == http.MethodPost:
+			denyRuntimeAccess(c, "Runtime deletion is administrator-only until asynchronous task completion is bound to ownership cleanup")
+			return
 		case path == "/node/modules" || path == "/node/modules/operate",
 			strings.HasPrefix(path, "/php/extensions"),
 			path == "/php/config" || path == "/php/update" || path == "/php/file" || path == "/php/fpm/config" || path == "/php/container/update",
@@ -39,4 +65,28 @@ func RuntimeRestrictedExecution() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func scopedRuntimeDetailID(path string) (uint, bool) {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" || strings.Contains(trimmed, "/") { return 0, false }
+	id, err := strconv.ParseUint(trimmed, 10, 64)
+	return uint(id), err == nil && id != 0
+}
+
+// redactRuntimeDTOForRBAC uses an explicit deny of every field that can carry
+// environment values, form values, host filesystem topology, container
+// identities or host-network overrides. runtime.view remains useful for
+// operational status without becoming a secret/host-metadata capability.
+func redactRuntimeDTOForRBAC(item *response.RuntimeDTO) {
+	if item == nil { return }
+	item.Params = map[string]interface{}{}
+	item.AppParams = nil
+	item.Environments = nil
+	item.Volumes = nil
+	item.ExtraHosts = nil
+	item.CodeDir = ""
+	item.Path = ""
+	item.Container = ""
+	item.Source = ""
 }

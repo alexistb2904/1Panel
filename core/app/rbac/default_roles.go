@@ -45,7 +45,7 @@ var DefaultRoleDefinitions = []RoleDefinition{
 			"runtime.view", "runtime.edit", "runtime.start", "runtime.stop", "runtime.restart",
 			"docker.container.view", "docker.container.create", "docker.container.edit", "docker.container.delete",
 			"docker.container.start", "docker.container.stop", "docker.container.restart", "docker.container.logs", "docker.container.stats", "docker.container.exec",
-			"docker.compose.view", "docker.compose.create", "docker.compose.edit", "docker.compose.deploy", "docker.compose.stop", "docker.compose.delete", "docker.compose.env.view",
+			"docker.compose.view", "docker.compose.edit", "docker.compose.deploy", "docker.compose.stop", "docker.compose.delete",
 		},
 	},
 	{

@@ -3,6 +3,7 @@ package rbac
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -76,7 +77,7 @@ func RuntimeProjectBindingMiddleware() gin.HandlerFunc {
 			"node_id = ? AND resource_type = ? AND resource_id = ? AND state = ?",
 			nodeID, "runtime", stableID, model.AccessResourceStateActive,
 		).First(&owner).Error
-		if errorsIsRecordNotFound(err) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			deny(c, http.StatusPreconditionFailed, "Runtime project ownership could not be resolved")
 			return
 		}
@@ -99,8 +100,4 @@ func RuntimeProjectBindingMiddleware() gin.HandlerFunc {
 		c.Request.ContentLength = int64(len(rewritten))
 		c.Next()
 	}
-}
-
-func errorsIsRecordNotFound(err error) bool {
-	return err != nil && (err == gorm.ErrRecordNotFound || strings.Contains(err.Error(), gorm.ErrRecordNotFound.Error()))
 }

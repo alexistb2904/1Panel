@@ -20,7 +20,8 @@ type RoleDefinition struct {
 // concrete Core+Agent enforcement path in Community RBAC. Unclassified or
 // deliberately admin-only legacy permissions remain in the catalog for future
 // implementation, but are not advertised through a role until their server-side
-// execution boundary is project-confined.
+// execution boundary is project-confined and its ownership lifecycle is
+// synchronously observable.
 var DefaultRoleDefinitions = []RoleDefinition{
 	{
 		Key: RoleAdministrator, Name: "Administrator",
@@ -41,7 +42,7 @@ var DefaultRoleDefinitions = []RoleDefinition{
 			"website.config.view", "website.config.edit",
 			"website.ssl.view",
 			"database.view", "database.create", "database.update", "database.delete", "database.credentials.rotate",
-			"runtime.view", "runtime.create", "runtime.edit", "runtime.delete", "runtime.start", "runtime.stop", "runtime.restart",
+			"runtime.view", "runtime.edit", "runtime.start", "runtime.stop", "runtime.restart",
 			"docker.container.view", "docker.container.create", "docker.container.edit", "docker.container.delete",
 			"docker.container.start", "docker.container.stop", "docker.container.restart", "docker.container.logs", "docker.container.stats", "docker.container.exec",
 			"docker.compose.view", "docker.compose.create", "docker.compose.edit", "docker.compose.deploy", "docker.compose.stop", "docker.compose.delete", "docker.compose.env.view",

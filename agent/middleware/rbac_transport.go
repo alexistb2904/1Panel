@@ -41,3 +41,39 @@ func NormalizeDockerRBACTransport() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// DockerScopedStreamLogBridge covers the one legacy GET streaming route that
+// predates the Agent JSON target resolver. Core has already selected the
+// docker.container.logs capability, but Agent still independently resolves the
+// requested Docker target to a canonical project-owned container before using
+// the internal marker to skip only the legacy resolver for this exact route.
+func DockerScopedStreamLogBridge() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method != http.MethodGet || c.Request.URL.Path != "/api/v2/containers/search/log" {
+			c.Next()
+			return
+		}
+		if c.GetHeader(headerDockerRBACMode) != dockerRBACModeIDs {
+			c.Next()
+			return
+		}
+		if c.GetHeader("X-Panel-RBAC-Permission") != "docker.container.logs" {
+			denyDocker(c, "Invalid Docker log capability")
+			return
+		}
+		target := strings.TrimSpace(c.Query("container"))
+		if target == "" { target = strings.TrimSpace(c.Query("name")) }
+		if target == "" {
+			denyDocker(c, "Docker log target is required")
+			return
+		}
+		allowed := parseRBACStringIDs(c.GetHeader(headerDockerRBACResourceIDs))
+		if !authorizedContainerTarget(target, allowed) {
+			denyDocker(c, "Container log access denied")
+			return
+		}
+		c.Request.Header.Set(headerDockerInternalRequest, "1")
+		c.Next()
+		c.Request.Header.Del(headerDockerInternalRequest)
+	}
+}

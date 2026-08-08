@@ -39,7 +39,7 @@ var DefaultRoleDefinitions = []RoleDefinition{
 			"website.logs.view",
 			"website.runtime.view", "website.runtime.restart",
 			"website.config.view", "website.config.edit",
-			"website.ssl.view", "website.ssl.manage",
+			"website.ssl.view",
 			"database.view", "database.create", "database.update", "database.delete", "database.credentials.rotate",
 			"runtime.view", "runtime.create", "runtime.edit", "runtime.delete", "runtime.start", "runtime.stop", "runtime.restart",
 			"docker.container.view", "docker.container.create", "docker.container.edit", "docker.container.delete",
@@ -49,7 +49,7 @@ var DefaultRoleDefinitions = []RoleDefinition{
 	},
 	{
 		Key: RoleSecurityAdvisor, Name: "Security Advisor",
-		Description: "Cross-cutting security visibility over explicitly implemented RBAC surfaces, without destructive administration rights.",
+		Description: "Cross-cutting security visibility over explicitly implemented RBAC surfaces, without destructive administration rights or application secret access.",
 		Sort: 30,
 		Permissions: []string{
 			"access.user.view", "access.role.view", "audit.view", "audit.export",
@@ -57,7 +57,7 @@ var DefaultRoleDefinitions = []RoleDefinition{
 			"website.view", "website.domain.view", "website.logs.view", "website.runtime.view", "website.config.view", "website.ssl.view",
 			"database.view", "runtime.view",
 			"docker.container.view", "docker.container.logs", "docker.container.stats",
-			"docker.compose.view", "docker.compose.env.view",
+			"docker.compose.view",
 		},
 	},
 	{

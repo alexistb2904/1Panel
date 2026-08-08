@@ -3,7 +3,6 @@ package middleware
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,10 +34,7 @@ func DockerRestrictedExecution() gin.HandlerFunc {
 		case path == "" && c.Request.Method == http.MethodPost:
 			var req dto.ContainerOperate
 			if !bindReusableJSON(c, &req) { return }
-			if err := validateRestrictedContainerSecurityExtras(req); err != nil {
-				denyDocker(c, err.Error())
-				return
-			}
+			if err := validateRestrictedContainerSecurityExtras(req); err != nil { denyDocker(c, err.Error()); return }
 			// Restricted creates must be synchronous. Core's two-phase ownership
 			// may only activate after the container has actually been created and
 			// started, never merely after a task has been queued.
@@ -49,6 +45,13 @@ func DockerRestrictedExecution() gin.HandlerFunc {
 			}
 			helper.Success(c)
 			c.Abort()
+			return
+
+		case path == "/update" && c.Request.Method == http.MethodPost:
+			var req dto.ContainerOperate
+			if !bindReusableJSON(c, &req) { return }
+			if err := validateRestrictedContainerSecurityExtras(req); err != nil { denyDocker(c, err.Error()); return }
+			c.Next()
 			return
 
 		case path == "/info" && c.Request.Method == http.MethodPost:
@@ -66,30 +69,20 @@ func DockerRestrictedExecution() gin.HandlerFunc {
 			return
 
 		case path == "/inspect":
-			// Docker inspect includes environment variables, labels, mount source
-			// paths and other secret-bearing implementation details. A future
-			// scoped projection can expose selected fields, but raw inspect is not
-			// a safe "view" primitive for a shared host.
 			denyDocker(c, "Raw Docker inspect is administrator-only; use the redacted container info endpoint")
 			return
 
 		case path == "/compose", path == "/compose/test":
 			var req dto.ComposeCreate
 			if !bindReusableJSON(c, &req) { return }
-			if err := validateRestrictedComposeExtraPolicy(req.File); err != nil {
-				denyDocker(c, err.Error())
-				return
-			}
+			if err := validateRestrictedComposeExtraPolicy(req.File); err != nil { denyDocker(c, err.Error()); return }
 			c.Next()
 			return
 
 		case path == "/compose/update":
 			var req dto.ComposeUpdate
 			if !bindReusableJSON(c, &req) { return }
-			if err := validateRestrictedComposeExtraPolicy(req.Content); err != nil {
-				denyDocker(c, err.Error())
-				return
-			}
+			if err := validateRestrictedComposeExtraPolicy(req.Content); err != nil { denyDocker(c, err.Error()); return }
 			c.Next()
 			return
 		}
@@ -103,12 +96,7 @@ func redactContainerInfoForRBAC(info *dto.ContainerOperate) {
 	info.Labels = nil
 	info.DNS = nil
 	info.ExtraHosts = nil
-	for i := range info.Volumes {
-		// The container destination is useful to understand the application;
-		// host source paths are infrastructure metadata and may contain another
-		// secret-bearing mount layout even when the target container is owned.
-		info.Volumes[i].SourceDir = ""
-	}
+	for i := range info.Volumes { info.Volumes[i].SourceDir = "" }
 }
 
 func validateRestrictedContainerSecurityExtras(req dto.ContainerOperate) error {
@@ -116,14 +104,6 @@ func validateRestrictedContainerSecurityExtras(req dto.ContainerOperate) error {
 		key := strings.TrimSpace(strings.SplitN(raw, "=", 2)[0])
 		if isReservedDockerLabel(key) {
 			return fmt.Errorf("Docker label %q is reserved for platform/Compose ownership", key)
-		}
-	}
-	for _, port := range req.ExposedPorts {
-		if host := net.ParseIP(strings.TrimSpace(port.HostIP)); host != nil && (host.IsUnspecified() || host.IsLoopback()) {
-			// Explicit 0.0.0.0/:: is normal for a published application port and
-			// loopback is less exposed, so both remain permitted. Parsing here is
-			// intentionally retained to reject malformed values in the base policy.
-			continue
 		}
 	}
 	return nil
@@ -134,9 +114,7 @@ func validateRestrictedComposeExtraPolicy(content string) error {
 	var document map[string]any
 	if err := yaml.Unmarshal([]byte(content), &document); err != nil { return fmt.Errorf("invalid Compose YAML: %w", err) }
 	for _, key := range []string{"include"} {
-		if nonEmpty(document[key]) {
-			return fmt.Errorf("Compose %s is administrator-only because it can load host/external configuration", key)
-		}
+		if nonEmpty(document[key]) { return fmt.Errorf("Compose %s is administrator-only because it can load host/external configuration", key) }
 	}
 	services, ok := document["services"].(map[string]any)
 	if !ok { return errors.New("Compose services are required") }
@@ -144,9 +122,7 @@ func validateRestrictedComposeExtraPolicy(content string) error {
 		serviceDef, ok := raw.(map[string]any)
 		if !ok { return fmt.Errorf("service %s has an invalid definition", serviceName) }
 		for _, key := range []string{"cgroup_parent", "runtime", "isolation", "storage_opt", "develop"} {
-			if nonEmpty(serviceDef[key]) {
-				return fmt.Errorf("service %s: %s is administrator-only on shared hosts", serviceName, key)
-			}
+			if nonEmpty(serviceDef[key]) { return fmt.Errorf("service %s: %s is administrator-only on shared hosts", serviceName, key) }
 		}
 		if err := validateRestrictedComposePorts(serviceName, serviceDef["ports"]); err != nil { return err }
 		if err := validateRestrictedComposeExtraHosts(serviceName, serviceDef["extra_hosts"]); err != nil { return err }
@@ -165,14 +141,10 @@ func validateRestrictedComposePorts(serviceName string, raw any) error {
 		switch value := item.(type) {
 		case string:
 			published := composePublishedPort(value)
-			if published > 0 && published < 1024 {
-				return fmt.Errorf("service %s: publishing privileged host port %d is administrator-only", serviceName, published)
-			}
+			if published > 0 && published < 1024 { return fmt.Errorf("service %s: publishing privileged host port %d is administrator-only", serviceName, published) }
 		case map[string]any:
 			published := intValue(value["published"])
-			if published > 0 && published < 1024 {
-				return fmt.Errorf("service %s: publishing privileged host port %d is administrator-only", serviceName, published)
-			}
+			if published > 0 && published < 1024 { return fmt.Errorf("service %s: publishing privileged host port %d is administrator-only", serviceName, published) }
 		default:
 			return fmt.Errorf("service %s: invalid port definition", serviceName)
 		}
@@ -181,9 +153,6 @@ func validateRestrictedComposePorts(serviceName string, raw any) error {
 }
 
 func composePublishedPort(value string) int {
-	// Strip protocol and IPv6/host-IP prefixes. The published host port is the
-	// penultimate numeric component in the common short forms HOST:CONTAINER and
-	// IP:HOST:CONTAINER. Ranges are conservatively checked at their first value.
 	value = strings.TrimSpace(strings.SplitN(value, "/", 2)[0])
 	parts := strings.Split(value, ":")
 	if len(parts) < 2 { return 0 }
@@ -214,15 +183,11 @@ func validateRestrictedComposeExtraHosts(serviceName string, raw any) error {
 	switch value := raw.(type) {
 	case []any:
 		for _, item := range value {
-			if containsHostGateway(fmt.Sprint(item)) {
-				return fmt.Errorf("service %s: host-gateway mappings are administrator-only", serviceName)
-			}
+			if containsHostGateway(fmt.Sprint(item)) { return fmt.Errorf("service %s: host-gateway mappings are administrator-only", serviceName) }
 		}
 	case map[string]any:
 		for host, target := range value {
-			if containsHostGateway(host) || containsHostGateway(fmt.Sprint(target)) {
-				return fmt.Errorf("service %s: host-gateway mappings are administrator-only", serviceName)
-			}
+			if containsHostGateway(host) || containsHostGateway(fmt.Sprint(target)) { return fmt.Errorf("service %s: host-gateway mappings are administrator-only", serviceName) }
 		}
 	default:
 		return fmt.Errorf("service %s: invalid extra_hosts definition", serviceName)

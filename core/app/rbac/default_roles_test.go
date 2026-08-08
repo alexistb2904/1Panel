@@ -24,12 +24,13 @@ func TestDeveloperHasScopedLifecycleWithoutHostPrimitives(t *testing.T) {
 	mustHave(t, role,
 		"website.create", "website.delete", "website.files.write", "website.ssl.view",
 		"database.create", "database.delete",
-		"runtime.create", "runtime.edit", "runtime.delete", "runtime.restart",
+		"runtime.edit", "runtime.restart",
 		"docker.compose.edit", "docker.container.exec")
 	mustNotHave(t, role,
 		"terminal.host", "settings.manage", "node.manage", "access.user.manage", "access.role.manage",
 		"firewall.manage", "docker.system.configure", "docker.registry.manage",
-		"website.shell", "website.runtime.manage", "website.ssl.manage", "runtime.command.edit")
+		"website.shell", "website.runtime.manage", "website.ssl.manage", "runtime.command.edit",
+		"runtime.create", "runtime.delete")
 }
 
 func TestSecurityAdvisorIsNonDestructiveAndNoSecretCapabilities(t *testing.T) {
@@ -39,7 +40,7 @@ func TestSecurityAdvisorIsNonDestructiveAndNoSecretCapabilities(t *testing.T) {
 		"firewall.manage", "access.user.manage", "access.role.manage", "terminal.host",
 		"website.files.write", "database.query.write", "docker.container.exec",
 		"website.env.secrets.view", "runtime.env.secrets.view", "docker.compose.secrets.view",
-		"docker.compose.env.view", "website.ssl.manage")
+		"docker.compose.env.view", "website.ssl.manage", "runtime.create", "runtime.delete")
 }
 
 func TestUserAndVisitorSeparation(t *testing.T) {

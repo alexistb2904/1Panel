@@ -9,7 +9,13 @@ import (
 type ContainerRouter struct{}
 
 func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
-	baRouter := Router.Group("containers").Use(middleware.NormalizeDockerRBACTransport(), middleware.DockerScopedStreamLogBridge(), middleware.DockerRBAC(), middleware.DockerRestrictedExecution())
+	baRouter := Router.Group("containers").Use(
+		middleware.NormalizeDockerRBACTransport(),
+		middleware.DockerScopedStreamLogBridge(),
+		middleware.DockerRBAC(),
+		middleware.DockerRestrictedLifecycleGate(),
+		middleware.DockerRestrictedExecution(),
+	)
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		baRouter.GET("/stats/:id", baseApi.ContainerStats)

@@ -62,9 +62,18 @@ func PageRuntimesForRBAC(req request.RuntimeSearch, allowedKeys []string) (int64
 		if runtime.Resource == constant.ResourceLocal { runtime.Status = constant.StatusNormal }
 		item := response.NewRuntimeDTO(runtime)
 		// Generic runtime listings are protected only by runtime.view. Never
-		// expose environment values here; secret-bearing env data must be served
-		// by a dedicated endpoint that can enforce runtime.env.secrets.view.
+		// expose environment values or host/runtime topology through this broad
+		// capability. A separate privileged/scoped API is required for secrets,
+		// host paths and container identities.
 		item.Params = make(map[string]interface{})
+		item.AppParams = nil
+		item.Environments = nil
+		item.Volumes = nil
+		item.ExtraHosts = nil
+		item.CodeDir = ""
+		item.Path = ""
+		item.Container = ""
+		item.Source = ""
 		envs, err := gotenv.Unmarshal(runtime.Env)
 		if err != nil { return 0, nil, err }
 		detail, _ := appDetailRepo.GetFirst(repo.WithByID(runtime.AppDetailID))

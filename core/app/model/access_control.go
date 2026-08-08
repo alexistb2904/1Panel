@@ -10,6 +10,9 @@ const (
 	AccessScopeNode     = "node"
 	AccessScopeProject  = "project"
 	AccessScopeResource = "resource"
+
+	AccessResourceStatePending = "pending"
+	AccessResourceStateActive  = "active"
 )
 
 // AccessUser is a local 1Panel identity used by the community RBAC layer.
@@ -109,12 +112,15 @@ func (AccessProjectNode) TableName() string { return "rbac_project_nodes" }
 // A concrete resource has exactly one project owner on a given node. ProjectID
 // is intentionally not part of the unique key: duplicate ownership across
 // projects must fail at the database boundary as well as in service code.
+// Pending rows reserve an identity during creation but are never authorization
+// grants; only active rows are considered by the evaluator.
 type AccessProjectResource struct {
 	BaseModel
 	ProjectID    uint   `gorm:"not null;index" json:"projectId"`
 	NodeID       uint   `gorm:"not null;default:0;index;uniqueIndex:idx_rbac_project_resource,priority:1" json:"nodeId"`
 	ResourceType string `gorm:"size:64;not null;index;uniqueIndex:idx_rbac_project_resource,priority:2" json:"resourceType"`
 	ResourceID   string `gorm:"size:128;not null;uniqueIndex:idx_rbac_project_resource,priority:3" json:"resourceId"`
+	State        string `gorm:"size:16;not null;default:active;index" json:"state"`
 }
 
 func (AccessProjectResource) TableName() string { return "rbac_project_resources" }

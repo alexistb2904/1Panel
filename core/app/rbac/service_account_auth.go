@@ -20,51 +20,76 @@ import (
 const GinContextScopedAPIAuthKey = "SCOPED_API_AUTH"
 const GinContextRBACSubjectTypeKey = "rbac_subject_type"
 
-const serviceCredentialLastUsedWriteInterval = time.Minute
+const (
+	serviceCredentialLastUsedWriteInterval = time.Minute
+	serviceTokenKeyIDLength                 = 16
+	serviceTokenSecretLength                = 64
+	serviceTokenLength                      = len("1ps_") + serviceTokenKeyIDLength + 1 + serviceTokenSecretLength
+	serviceAuthorizationMaxLength           = 256
+)
 
-// ServiceAccountAuthMiddleware accepts tokens formatted as
-// `Bearer 1ps_<key-id>_<secret>`. The secret is never stored in plaintext.
+var serviceAccountDummyHash = make([]byte, sha256.Size)
+
+// ServiceAccountAuthMiddleware accepts only the exact token shape emitted by
+// Create/RotateServiceAccount: Bearer 1ps_<16 lowercase hex>_<64 lowercase hex>.
+// The secret is never stored in plaintext. Authentication failures are
+// deliberately indistinguishable to callers so key IDs, expiry state, IP
+// policy and account state cannot be enumerated remotely.
 func ServiceAccountAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authz := strings.TrimSpace(c.GetHeader("Authorization"))
-		if !strings.HasPrefix(strings.ToLower(authz), "bearer 1ps_") {
+		if len(authz) > serviceAuthorizationMaxLength {
+			if strings.HasPrefix(strings.ToLower(authz), "bearer 1ps_") {
+				denyServiceAccountAuth(c)
+				return
+			}
 			c.Next()
 			return
 		}
-		token := strings.TrimSpace(authz[len("Bearer "):])
-		keyID, secret, ok := splitServiceToken(token)
+		parts := strings.Fields(authz)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || !strings.HasPrefix(parts[1], "1ps_") {
+			c.Next()
+			return
+		}
+		keyID, secret, ok := splitServiceToken(parts[1])
 		if !ok {
-			deny(c, http.StatusUnauthorized, "Invalid service account token")
+			denyServiceAccountAuth(c)
 			return
 		}
-		var credential model.AccessServiceCredential
-		if err := global.DB.Where("key_id = ? AND status = ?", keyID, model.AccessUserStatusActive).First(&credential).Error; err != nil {
-			deny(c, http.StatusUnauthorized, "Unknown or disabled service account credential")
-			return
-		}
-		now := time.Now()
-		if credential.ExpiresAt != nil && now.After(*credential.ExpiresAt) {
-			deny(c, http.StatusUnauthorized, "Service account credential has expired")
-			return
-		}
+
 		provided := sha256.Sum256([]byte(secret))
-		expected, err := hex.DecodeString(credential.SecretHash)
-		if err != nil || len(expected) != len(provided) || subtle.ConstantTimeCompare(expected, provided[:]) != 1 {
-			deny(c, http.StatusUnauthorized, "Invalid service account token")
+		var credential model.AccessServiceCredential
+		err := global.DB.Where("key_id = ? AND status = ?", keyID, model.AccessUserStatusActive).First(&credential).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Keep the secret-comparison work present for unknown key IDs instead
+			// of returning immediately on a distinguishable fast path.
+			_ = subtle.ConstantTimeCompare(serviceAccountDummyHash, provided[:])
+			denyServiceAccountAuth(c)
 			return
 		}
+		if err != nil {
+			deny(c, http.StatusInternalServerError, "Unable to authenticate service account")
+			return
+		}
+
+		expected, decodeErr := hex.DecodeString(credential.SecretHash)
+		validSecret := decodeErr == nil && len(expected) == sha256.Size && subtle.ConstantTimeCompare(expected, provided[:]) == 1
+		now := time.Now()
+		validExpiry := credential.ExpiresAt == nil || now.Before(*credential.ExpiresAt)
 		clientIP := serviceAccountClientIP(c)
-		if !serviceAccountIPAllowed(clientIP, credential.IPWhiteList) {
-			deny(c, http.StatusUnauthorized, "Service account IP is not allowed")
+		validIP := serviceAccountIPAllowed(clientIP, credential.IPWhiteList)
+		if !validSecret || !validExpiry || !validIP {
+			denyServiceAccountAuth(c)
 			return
 		}
+
 		var user model.AccessUser
 		if err := global.DB.Where("id = ? AND auth_source = ? AND status = ?", credential.UserID, "service_account", model.AccessUserStatusActive).First(&user).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				deny(c, http.StatusUnauthorized, "Service account identity is disabled")
+				denyServiceAccountAuth(c)
 				return
 			}
-			deny(c, http.StatusInternalServerError, "Unable to load service account identity")
+			deny(c, http.StatusInternalServerError, "Unable to authenticate service account")
 			return
 		}
 
@@ -84,15 +109,37 @@ func ServiceAccountAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+func denyServiceAccountAuth(c *gin.Context) {
+	deny(c, http.StatusUnauthorized, "Invalid service account credential")
+}
+
 func splitServiceToken(token string) (string, string, bool) {
-	if !strings.HasPrefix(token, "1ps_") {
+	if len(token) != serviceTokenLength || !strings.HasPrefix(token, "1ps_") {
 		return "", "", false
 	}
-	parts := strings.SplitN(strings.TrimPrefix(token, "1ps_"), "_", 2)
-	if len(parts) != 2 || len(parts[0]) < 8 || len(parts[1]) < 32 {
+	payload := strings.TrimPrefix(token, "1ps_")
+	if len(payload) != serviceTokenKeyIDLength+1+serviceTokenSecretLength || payload[serviceTokenKeyIDLength] != '_' {
 		return "", "", false
 	}
-	return parts[0], parts[1], true
+	keyID := payload[:serviceTokenKeyIDLength]
+	secret := payload[serviceTokenKeyIDLength+1:]
+	if !isLowerHexServiceToken(keyID) || !isLowerHexServiceToken(secret) {
+		return "", "", false
+	}
+	return keyID, secret, true
+}
+
+func isLowerHexServiceToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func directPeerIP(remoteAddr string) string {
@@ -107,10 +154,14 @@ func parseTrustedProxyNetworks(raw string) []*net.IPNet {
 	var networks []*net.IPNet
 	for _, item := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == ';' }) {
 		item = strings.TrimSpace(item)
-		if item == "" { continue }
+		if item == "" {
+			continue
+		}
 		if ip := net.ParseIP(item); ip != nil {
 			bits := 128
-			if ip.To4() != nil { bits = 32 }
+			if ip.To4() != nil {
+				bits = 32
+			}
 			networks = append(networks, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
 			continue
 		}
@@ -122,16 +173,22 @@ func parseTrustedProxyNetworks(raw string) []*net.IPNet {
 }
 
 func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {
-	if ip == nil { return false }
+	if ip == nil {
+		return false
+	}
 	for _, network := range networks {
-		if network.Contains(ip) { return true }
+		if network.Contains(ip) {
+			return true
+		}
 	}
 	return false
 }
 
 func serviceAccountClientIP(c *gin.Context) string {
 	trustedRaw, err := repo.NewISettingRepo().GetValueByKey("ApiTrustedProxies")
-	if err != nil { trustedRaw = "" }
+	if err != nil {
+		trustedRaw = ""
+	}
 	return serviceAccountClientIPWithTrustedProxies(c, trustedRaw)
 }
 
@@ -155,13 +212,17 @@ func serviceAccountClientIPWithTrustedProxies(c *gin.Context, trustedRaw string)
 		var leftmost net.IP
 		for i := len(parts) - 1; i >= 0; i-- {
 			candidate := net.ParseIP(strings.TrimSpace(parts[i]))
-			if candidate == nil { continue }
+			if candidate == nil {
+				continue
+			}
 			leftmost = candidate
 			if !ipInNetworks(candidate, trusted) {
 				return candidate.String()
 			}
 		}
-		if leftmost != nil { return leftmost.String() }
+		if leftmost != nil {
+			return leftmost.String()
+		}
 	}
 	if realIP := net.ParseIP(strings.TrimSpace(c.GetHeader("X-Real-IP"))); realIP != nil {
 		return realIP.String()
@@ -180,9 +241,15 @@ func serviceAccountIPAllowed(clientIP, raw string) bool {
 	}
 	for _, item := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' || r == ';' }) {
 		item = strings.TrimSpace(item)
-		if item == "" { continue }
-		if candidate := net.ParseIP(item); candidate != nil && candidate.Equal(ip) { return true }
-		if _, network, err := net.ParseCIDR(item); err == nil && network.Contains(ip) { return true }
+		if item == "" {
+			continue
+		}
+		if candidate := net.ParseIP(item); candidate != nil && candidate.Equal(ip) {
+			return true
+		}
+		if _, network, err := net.ParseCIDR(item); err == nil && network.Contains(ip) {
+			return true
+		}
 	}
 	return false
 }

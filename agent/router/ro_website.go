@@ -12,6 +12,7 @@ func (a *WebsiteRouter) InitRouter(Router *gin.RouterGroup) {
 	websiteRouter := Router.Group("websites").Use(
 		middleware.StableWebsiteIdentityGuard(),
 		middleware.WebsiteRBAC(),
+		middleware.WebsiteFreshIdentityGuard(),
 		middleware.WebsiteRestrictedBoundaryGuard(),
 		middleware.WebsiteRestrictedExecution(),
 		middleware.RBACDeletionIdentity(),

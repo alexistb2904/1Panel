@@ -1,9 +1,7 @@
 package middleware
 
 import (
-	"bytes"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 
@@ -127,9 +125,3 @@ func rejectScopedComposeHostPaths(content string) error {
 	}
 	return nil
 }
-
-// keep bytes/io referenced by this file's reusable body semantics explicit in
-// case dto binding changes to raw JSON handling; the compile-time assignments
-// make accidental import removal during generated rewrites harmless.
-var _ = bytes.NewReader
-var _ io.Reader

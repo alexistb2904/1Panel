@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
@@ -15,37 +16,119 @@ import (
 	"gorm.io/gorm"
 )
 
-const creationResponseCaptureLimit = 64 * 1024
+const (
+	creationResponseCaptureLimit = 1024 * 1024
+	staleCreationReservationAge = 15 * time.Minute
+)
 
-var projectResourceCreationLocks sync.Map
+type keyedCreationLock struct {
+	mu   sync.Mutex
+	refs int
+}
 
-type creationCaptureWriter struct {
+var projectResourceCreationLocks = struct {
+	sync.Mutex
+	items map[string]*keyedCreationLock
+}{items: make(map[string]*keyedCreationLock)}
+
+func acquireProjectResourceCreationLock(key string) func() {
+	projectResourceCreationLocks.Lock()
+	entry := projectResourceCreationLocks.items[key]
+	if entry == nil {
+		entry = &keyedCreationLock{}
+		projectResourceCreationLocks.items[key] = entry
+	}
+	entry.refs++
+	projectResourceCreationLocks.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		projectResourceCreationLocks.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(projectResourceCreationLocks.items, key)
+		}
+		projectResourceCreationLocks.Unlock()
+	}
+}
+
+type deferredResponseWriter struct {
 	gin.ResponseWriter
-	captured bytes.Buffer
+	header  http.Header
+	status  int
+	size    int
+	written bool
+	body    bytes.Buffer
+	overflow bool
 }
 
-func (w *creationCaptureWriter) Write(data []byte) (int, error) {
-	w.capture(data)
-	return w.ResponseWriter.Write(data)
+func newDeferredResponseWriter(base gin.ResponseWriter) *deferredResponseWriter {
+	header := make(http.Header, len(base.Header()))
+	for key, values := range base.Header() {
+		header[key] = append([]string(nil), values...)
+	}
+	return &deferredResponseWriter{ResponseWriter: base, header: header, status: http.StatusOK}
 }
 
-func (w *creationCaptureWriter) WriteString(value string) (int, error) {
-	w.capture([]byte(value))
-	return w.ResponseWriter.WriteString(value)
+func (w *deferredResponseWriter) Header() http.Header { return w.header }
+
+func (w *deferredResponseWriter) WriteHeader(code int) {
+	if w.written { return }
+	w.status = code
+	w.written = true
 }
 
-func (w *creationCaptureWriter) capture(data []byte) {
-	if w.captured.Len() >= creationResponseCaptureLimit { return }
-	remaining := creationResponseCaptureLimit - w.captured.Len()
-	if len(data) > remaining { data = data[:remaining] }
-	_, _ = w.captured.Write(data)
+func (w *deferredResponseWriter) WriteHeaderNow() {
+	if !w.written { w.WriteHeader(w.status) }
 }
 
-// ContinueCreationWithOwnership serializes creation of a concrete resource,
-// rejects a conflicting existing owner, forwards the request, and persists
-// ownership only after the downstream Agent reports success. The Agent receives
-// the proposed resource ID directly in trusted Core headers, so no pre-created
-// ownership row is required for authorization.
+func (w *deferredResponseWriter) Write(data []byte) (int, error) {
+	if !w.written { w.WriteHeader(w.status) }
+	if w.body.Len()+len(data) > creationResponseCaptureLimit {
+		w.overflow = true
+		// Report the logical write as successful to the downstream handler but
+		// never partially flush a response that cannot be safely committed.
+		w.size += len(data)
+		return len(data), nil
+	}
+	n, err := w.body.Write(data)
+	w.size += n
+	return n, err
+}
+
+func (w *deferredResponseWriter) WriteString(value string) (int, error) {
+	return w.Write([]byte(value))
+}
+
+func (w *deferredResponseWriter) Status() int { return w.status }
+func (w *deferredResponseWriter) Size() int { return w.size }
+func (w *deferredResponseWriter) Written() bool { return w.written }
+func (w *deferredResponseWriter) Flush() { w.WriteHeaderNow() }
+func (w *deferredResponseWriter) Pusher() http.Pusher { return w.ResponseWriter.Pusher() }
+
+func (w *deferredResponseWriter) commitTo(target gin.ResponseWriter) error {
+	if w.overflow {
+		return errors.New("downstream creation response exceeded the safe buffering limit")
+	}
+	for key := range target.Header() { target.Header().Del(key) }
+	for key, values := range w.header {
+		for _, value := range values { target.Header().Add(key, value) }
+	}
+	target.WriteHeader(w.status)
+	if w.body.Len() != 0 {
+		_, err := target.Write(w.body.Bytes())
+		return err
+	}
+	return nil
+}
+
+// ContinueCreationWithOwnership uses a two-phase ownership record. A pending
+// reservation prevents concurrent/cross-project reuse but is deliberately
+// excluded from authorization by Evaluator. The reservation becomes active
+// only after the downstream Agent has completed the resource creation and the
+// ownership activation has been committed. The downstream success response is
+// buffered until that database transition succeeds.
 func ContinueCreationWithOwnership(c *gin.Context, projectID, nodeID uint, resourceType, resourceID string) {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.TrimSpace(resourceID)
@@ -59,30 +142,90 @@ func ContinueCreationWithOwnership(c *gin.Context, projectID, nodeID uint, resou
 	}
 
 	lockKey := fmt.Sprintf("%d:%s:%s", nodeID, resourceType, resourceID)
-	value, _ := projectResourceCreationLocks.LoadOrStore(lockKey, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
+	release := acquireProjectResourceCreationLock(lockKey)
+	defer release()
 
-	alreadyOwned, err := projectResourceOwnedBy(projectID, nodeID, resourceType, resourceID)
+	reservationCreated, alreadyActive, err := reserveProjectResource(projectID, nodeID, resourceType, resourceID)
 	if err != nil {
 		deny(c, http.StatusPreconditionFailed, err.Error())
 		return
 	}
 
-	writer := &creationCaptureWriter{ResponseWriter: c.Writer}
+	originalWriter := c.Writer
+	writer := newDeferredResponseWriter(originalWriter)
 	c.Writer = writer
 	c.Next()
-	if alreadyOwned || !creationResponseSucceeded(writer.Status(), writer.captured.Bytes()) {
+	c.Writer = originalWriter
+
+	if writer.overflow {
+		if reservationCreated { rollbackProjectResourceReservation(projectID, nodeID, resourceType, resourceID) }
+		deny(c, http.StatusBadGateway, "Downstream creation response was too large to validate safely")
 		return
 	}
-	resource := model.AccessProjectResource{ProjectID: projectID, NodeID: nodeID, ResourceType: resourceType, ResourceID: resourceID}
-	if err := global.DB.Create(&resource).Error; err != nil {
-		// The resource now exists but is deliberately not exposed to restricted
-		// identities without an ownership row. Surface this loudly for an admin
-		// to repair rather than granting ambiguous access.
-		global.LOG.Errorf("RBAC ownership commit failed after successful creation node=%d type=%s id=%s project=%d: %v", nodeID, resourceType, resourceID, projectID, err)
-		AuditDecision(c, 0, "rbac.project_resource.commit", "deny", resourceType, resourceID, nodeID, projectID, "resource created but ownership persistence failed")
+	if !creationResponseSucceeded(writer.Status(), writer.body.Bytes()) {
+		if reservationCreated { rollbackProjectResourceReservation(projectID, nodeID, resourceType, resourceID) }
+		if err := writer.commitTo(originalWriter); err != nil {
+			global.LOG.Errorf("flush downstream creation failure response: %v", err)
+		}
+		return
+	}
+
+	if reservationCreated {
+		result := global.DB.Model(&model.AccessProjectResource{}).
+			Where("project_id = ? AND node_id = ? AND resource_type = ? AND resource_id = ? AND state = ?", projectID, nodeID, resourceType, resourceID, model.AccessResourceStatePending).
+			Updates(map[string]any{"state": model.AccessResourceStateActive, "updated_at": time.Now()})
+		if result.Error != nil || result.RowsAffected != 1 {
+			global.LOG.Errorf("RBAC ownership activation failed after successful creation node=%d type=%s id=%s project=%d: %v", nodeID, resourceType, resourceID, projectID, result.Error)
+			AuditDecision(c, 0, "rbac.project_resource.activate", "deny", resourceType, resourceID, nodeID, projectID, "resource created but ownership activation failed")
+			deny(c, http.StatusInternalServerError, "Resource was created but its project ownership could not be activated; administrator repair is required")
+			return
+		}
+	} else if !alreadyActive {
+		deny(c, http.StatusInternalServerError, "Resource ownership reservation was lost")
+		return
+	}
+
+	if err := writer.commitTo(originalWriter); err != nil {
+		global.LOG.Errorf("flush committed creation response: %v", err)
+	}
+}
+
+func reserveProjectResource(projectID, nodeID uint, resourceType, resourceID string) (created bool, alreadyActive bool, err error) {
+	var existing model.AccessProjectResource
+	err = global.DB.Where("node_id = ? AND resource_type = ? AND resource_id = ?", nodeID, resourceType, resourceID).First(&existing).Error
+	if err == nil {
+		if existing.ProjectID != projectID {
+			return false, false, fmt.Errorf("%s %s is already owned by another project", resourceType, resourceID)
+		}
+		if existing.State == "" || existing.State == model.AccessResourceStateActive {
+			return false, true, nil
+		}
+		if existing.State == model.AccessResourceStatePending && time.Since(existing.UpdatedAt) < staleCreationReservationAge {
+			return false, false, fmt.Errorf("%s %s creation is already pending", resourceType, resourceID)
+		}
+		// A stale reservation is safe to reclaim because pending rows never grant
+		// access. The keyed lock prevents a live in-process creator being raced.
+		if err := global.DB.Delete(&existing).Error; err != nil {
+			return false, false, err
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, false, err
+	}
+
+	reservation := model.AccessProjectResource{
+		ProjectID: projectID, NodeID: nodeID, ResourceType: resourceType,
+		ResourceID: resourceID, State: model.AccessResourceStatePending,
+	}
+	if err := global.DB.Create(&reservation).Error; err != nil {
+		return false, false, err
+	}
+	return true, false, nil
+}
+
+func rollbackProjectResourceReservation(projectID, nodeID uint, resourceType, resourceID string) {
+	if err := global.DB.Where("project_id = ? AND node_id = ? AND resource_type = ? AND resource_id = ? AND state = ?", projectID, nodeID, resourceType, resourceID, model.AccessResourceStatePending).
+		Delete(&model.AccessProjectResource{}).Error; err != nil {
+		global.LOG.Errorf("rollback RBAC creation reservation node=%d type=%s id=%s project=%d: %v", nodeID, resourceType, resourceID, projectID, err)
 	}
 }
 
@@ -93,6 +236,9 @@ func projectResourceOwnedBy(projectID, nodeID uint, resourceType, resourceID str
 	if err != nil { return false, err }
 	if existing.ProjectID != projectID {
 		return false, fmt.Errorf("%s %s is already owned by another project", resourceType, resourceID)
+	}
+	if existing.State == model.AccessResourceStatePending {
+		return false, fmt.Errorf("%s %s creation is already pending", resourceType, resourceID)
 	}
 	return true, nil
 }
@@ -105,8 +251,6 @@ func creationResponseSucceeded(status int, body []byte) bool {
 		Code int `json:"code"`
 	}
 	if err := json.Unmarshal(trimmed, &envelope); err != nil {
-		// Creation endpoints should return the standard 1Panel envelope. Unknown
-		// responses are fail-closed and do not create an ownership grant.
 		return false
 	}
 	return envelope.Code >= http.StatusOK && envelope.Code < http.StatusMultipleChoices

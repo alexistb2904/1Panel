@@ -9,7 +9,12 @@ import (
 type RuntimeRouter struct{}
 
 func (r *RuntimeRouter) InitRouter(Router *gin.RouterGroup) {
-	groupRouter := Router.Group("runtimes").Use(middleware.RuntimeRBAC(), middleware.RuntimeRestrictedExecution(), middleware.RBACDeletionIdentity())
+	groupRouter := Router.Group("runtimes").Use(
+		middleware.StableRuntimeIdentityGuard(),
+		middleware.RuntimeRBAC(),
+		middleware.RuntimeRestrictedExecution(),
+		middleware.RBACDeletionIdentity(),
+	)
 
 	baseApi := v2.ApiGroupApp.BaseApi
 	{

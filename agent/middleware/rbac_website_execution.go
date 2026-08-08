@@ -32,9 +32,6 @@ func WebsiteRestrictedExecution() gin.HandlerFunc {
 		path := strings.TrimPrefix(c.Request.URL.Path, "/api/v2/websites")
 		if websiteID, isHTTPS := scopedWebsiteHTTPSPath(path); isHTTPS {
 			if c.Request.Method == http.MethodPost {
-				// WebsiteSSLID/ACME/DNS identities are global Agent resources today.
-				// Until certificates have project ownership, a website-scoped user
-				// must not select, rotate or replace arbitrary certificate material.
 				denyWebsiteAccess(c, "TLS certificate mutation is administrator-only until certificate ownership is project-scoped")
 				return
 			}
@@ -53,6 +50,13 @@ func WebsiteRestrictedExecution() gin.HandlerFunc {
 		}
 
 		switch path {
+		case "/batch/ssl":
+			// The batch endpoint selects one WebsiteSSLID for multiple sites. The
+			// certificate object is still global Agent state, so even a future
+			// custom role carrying website.ssl.manage must not cross project TLS
+			// boundaries until certificates themselves are project-owned.
+			denyWebsiteAccess(c, "Batch TLS certificate mutation is administrator-only until certificate ownership is project-scoped")
+			return
 		case "/nginx/update",
 			"/config/update",
 			"/rewrite/update",

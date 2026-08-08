@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/1Panel-dev/1Panel/core/app/model"
 	"github.com/1Panel-dev/1Panel/core/global"
@@ -18,7 +17,6 @@ import (
 )
 
 var communityUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{2,127}$`)
-var loginLanguageMu sync.Mutex
 
 // CommunityRBACEnabled is a schema-level, monotonic switch. The RBAC migration
 // runs before the HTTP server starts and bootstraps the legacy administrator.
@@ -31,30 +29,49 @@ func CommunityRBACEnabled() bool {
 }
 
 // PreserveGlobalLanguageOnLogin prevents an unauthenticated login attempt from
-// permanently mutating the installation-wide Language setting. The legacy
-// handler changes Language before validating credentials; multi-user Community
-// treats the request language as transient input and restores the global value
-// after the login handler completes. Login attempts are serialized around this
-// legacy mutation so concurrent requests cannot interleave snapshot/restore and
-// accidentally persist another request's transient language.
+// mutating the installation-wide Language setting. The upstream Community login
+// service writes info.Language before verifying credentials. In multi-user mode
+// language is presentation state, not authentication state, so this middleware
+// rewrites the incoming language to the already-persisted global value. The
+// downstream update therefore becomes an idempotent write and concurrent bcrypt
+// work is never serialized behind a global login mutex.
 func PreserveGlobalLanguageOnLogin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !CommunityRBACEnabled() {
 			c.Next()
 			return
 		}
-		loginLanguageMu.Lock()
-		defer loginLanguageMu.Unlock()
-		var setting model.Setting
-		if err := global.DB.Where("key = ?", "Language").First(&setting).Error; err != nil {
-			deny(c, http.StatusInternalServerError, "Unable to preserve login language setting")
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			deny(c, http.StatusBadRequest, "Unable to parse login request")
 			return
 		}
-		original := setting.Value
-		c.Next()
-		if err := global.DB.Model(&model.Setting{}).Where("key = ?", "Language").Update("value", original).Error; err != nil {
-			global.LOG.Errorf("restore global Language after login attempt failed: %v", err)
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		if len(bytes.TrimSpace(body)) == 0 {
+			c.Next()
+			return
 		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			// Preserve the normal login validator/error semantics for malformed
+			// payloads rather than introducing a second JSON error contract here.
+			c.Next()
+			return
+		}
+		var setting model.Setting
+		if err := global.DB.Where("key = ?", "Language").First(&setting).Error; err != nil {
+			deny(c, http.StatusInternalServerError, "Unable to load login language setting")
+			return
+		}
+		payload["language"] = setting.Value
+		rewritten, err := json.Marshal(payload)
+		if err != nil {
+			deny(c, http.StatusInternalServerError, "Unable to normalize login request")
+			return
+		}
+		c.Request.Body = io.NopCloser(bytes.NewReader(rewritten))
+		c.Request.ContentLength = int64(len(rewritten))
+		c.Next()
 	}
 }
 

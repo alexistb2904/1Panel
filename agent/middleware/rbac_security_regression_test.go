@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/1Panel-dev/1Panel/agent/app/dto"
+	"github.com/1Panel-dev/1Panel/agent/app/model"
 )
 
 func TestStructuredRBACResourceTransportPreservesDelimiters(t *testing.T) {
@@ -82,4 +83,22 @@ func TestRestrictedWebsiteCreationHasNoImplicitCrossResourceSideEffects(t *testi
 		if err := validateRestrictedWebsiteCreation(payload); err == nil { t.Fatalf("unsafe website creation side effect must be rejected: %#v", payload) }
 	}
 	if err := validateRestrictedWebsiteCreation(map[string]any{}); err != nil { t.Fatalf("plain side-effect-free website creation should remain allowed: %v", err) }
+}
+
+func TestScopedWebsiteTLSViewRedactsPrivateMaterial(t *testing.T) {
+	ssl := model.WebsiteSSL{
+		PrivateKey: "PRIVATE", Pem: "CERT", CertURL: "secret-url", DnsAccountID: 7, AcmeAccountID: 8, CaID: 9,
+		Dir: "/secret", Shell: "curl token", ExecShell: true, Nodes: "all", PrivateKeyPath: "/keys/key.pem", CertPath: "/keys/cert.pem",
+		AcmeAccount: model.WebsiteAcmeAccount{Email: "ops@example.com", EabKid: "kid", EabHmacKey: "hmac"},
+		DnsAccount: model.WebsiteDnsAccount{Name: "cloud", Type: "provider"},
+		Websites: []model.Website{{Alias: "other-site"}},
+	}
+	redactWebsiteHTTPSForRBAC(&ssl)
+	if ssl.PrivateKey != "" || ssl.Pem != "" || ssl.CertURL != "" || ssl.Shell != "" || ssl.PrivateKeyPath != "" || ssl.CertPath != "" {
+		t.Fatal("TLS private material/path metadata survived scoped redaction")
+	}
+	if ssl.DnsAccountID != 0 || ssl.AcmeAccountID != 0 || ssl.CaID != 0 || ssl.ExecShell || len(ssl.Websites) != 0 {
+		t.Fatal("TLS account/cross-resource metadata survived scoped redaction")
+	}
+	if ssl.AcmeAccount.ID != 0 || ssl.DnsAccount.ID != 0 { t.Fatal("nested TLS account objects survived redaction") }
 }

@@ -9,11 +9,10 @@ import (
 type ContainerRouter struct{}
 
 func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
-	baRouter := Router.Group("containers").Use(middleware.NormalizeDockerRBACTransport(), middleware.DockerRBAC(), middleware.DockerRestrictedExecution())
+	baRouter := Router.Group("containers").Use(middleware.NormalizeDockerRBACTransport(), middleware.DockerScopedStreamLogBridge(), middleware.DockerRBAC(), middleware.DockerRestrictedExecution())
 	baseApi := v2.ApiGroupApp.BaseApi
 	{
 		baRouter.GET("/stats/:id", baseApi.ContainerStats)
-
 		baRouter.POST("", baseApi.ContainerCreate)
 		baRouter.POST("/update", baseApi.ContainerUpdate)
 		baRouter.POST("/upgrade", baseApi.ContainerUpgrade)
@@ -33,7 +32,6 @@ func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
 		baRouter.POST("/commit", baseApi.ContainerCommit)
 		baRouter.POST("/operate", baseApi.ContainerOperation)
 		baRouter.POST("/prune", baseApi.ContainerPrune)
-
 		baRouter.POST("/users", baseApi.LoadContainerUsers)
 		baRouter.POST("/files/search", baseApi.ListContainerFiles)
 		baRouter.POST("/files/upload", baseApi.UploadContainerFile)
@@ -41,14 +39,12 @@ func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
 		baRouter.POST("/files/size", baseApi.GetContainerFileSize)
 		baRouter.POST("/files/del", baseApi.DeleteContainerFile)
 		baRouter.POST("/files/download", baseApi.DownloadContainerFile)
-
 		baRouter.GET("/repo", baseApi.ListRepo)
 		baRouter.POST("/repo/status", baseApi.CheckRepoStatus)
 		baRouter.POST("/repo/search", baseApi.SearchRepo)
 		baRouter.POST("/repo/update", baseApi.UpdateRepo)
 		baRouter.POST("/repo", baseApi.CreateRepo)
 		baRouter.POST("/repo/del", baseApi.DeleteRepo)
-
 		baRouter.POST("/compose/search", baseApi.SearchCompose)
 		baRouter.POST("/compose", baseApi.CreateCompose)
 		baRouter.POST("/compose/env", baseApi.LoadComposeEnv)
@@ -57,14 +53,12 @@ func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
 		baRouter.POST("/compose/clean/log", baseApi.CleanComposeLog)
 		baRouter.POST("/compose/update", baseApi.ComposeUpdate)
 		baRouter.POST("/compose/pin", baseApi.ComposePin)
-
 		baRouter.GET("/template", baseApi.ListComposeTemplate)
 		baRouter.POST("/template/search", baseApi.SearchComposeTemplate)
 		baRouter.POST("/template/update", baseApi.UpdateComposeTemplate)
 		baRouter.POST("/template/batch", baseApi.BatchComposeTemplate)
 		baRouter.POST("/template", baseApi.CreateComposeTemplate)
 		baRouter.POST("/template/del", baseApi.DeleteComposeTemplate)
-
 		baRouter.GET("/image", baseApi.ListImage)
 		baRouter.GET("/image/all", baseApi.ListAllImage)
 		baRouter.POST("/image/search", baseApi.SearchImage)
@@ -75,7 +69,6 @@ func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
 		baRouter.POST("/image/remove", baseApi.ImageRemove)
 		baRouter.POST("/image/tag", baseApi.ImageTag)
 		baRouter.POST("/image/build", baseApi.ImageBuild)
-
 		baRouter.GET("/network", baseApi.ListNetwork)
 		baRouter.POST("/network/del", baseApi.DeleteNetwork)
 		baRouter.POST("/network/search", baseApi.SearchNetwork)
@@ -84,7 +77,6 @@ func (s *ContainerRouter) InitRouter(Router *gin.RouterGroup) {
 		baRouter.POST("/volume/del", baseApi.DeleteVolume)
 		baRouter.POST("/volume/search", baseApi.SearchVolume)
 		baRouter.POST("/volume", baseApi.CreateVolume)
-
 		baRouter.GET("/daemonjson", baseApi.LoadDaemonJson)
 		baRouter.GET("/daemonjson/file", baseApi.LoadDaemonJsonFile)
 		baRouter.GET("/docker/status", baseApi.LoadDockerStatus)

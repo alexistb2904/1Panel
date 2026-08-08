@@ -22,31 +22,32 @@ func TestAdministratorGetsEntireCatalog(t *testing.T) {
 func TestDeveloperHasScopedLifecycleWithoutHostPrimitives(t *testing.T) {
 	role := findRole(t, RoleDeveloper)
 	mustHave(t, role,
-		"website.create", "website.delete", "website.files.write",
+		"website.create", "website.delete", "website.files.write", "website.ssl.view",
 		"database.create", "database.delete",
 		"runtime.create", "runtime.edit", "runtime.delete", "runtime.restart",
 		"docker.compose.edit", "docker.container.exec")
 	mustNotHave(t, role,
 		"terminal.host", "settings.manage", "node.manage", "access.user.manage", "access.role.manage",
 		"firewall.manage", "docker.system.configure", "docker.registry.manage",
-		"website.shell", "website.runtime.manage", "runtime.command.edit")
+		"website.shell", "website.runtime.manage", "website.ssl.manage", "runtime.command.edit")
 }
 
 func TestSecurityAdvisorIsNonDestructiveAndNoSecretCapabilities(t *testing.T) {
 	role := findRole(t, RoleSecurityAdvisor)
-	mustHave(t, role, "audit.view", "access.user.view", "access.role.view", "website.view", "docker.container.view")
+	mustHave(t, role, "audit.view", "access.user.view", "access.role.view", "website.view", "docker.container.view", "website.ssl.view")
 	mustNotHave(t, role,
 		"firewall.manage", "access.user.manage", "access.role.manage", "terminal.host",
 		"website.files.write", "database.query.write", "docker.container.exec",
-		"website.env.secrets.view", "runtime.env.secrets.view", "docker.compose.secrets.view")
+		"website.env.secrets.view", "runtime.env.secrets.view", "docker.compose.secrets.view",
+		"docker.compose.env.view", "website.ssl.manage")
 }
 
 func TestUserAndVisitorSeparation(t *testing.T) {
 	user := findRole(t, RoleUser)
 	visitor := findRole(t, RoleVisitor)
-	mustHave(t, user, "website.files.read", "website.files.write", "website.files.delete")
-	mustNotHave(t, user, "website.backup.create", "website.shell")
-	mustNotHave(t, visitor, "website.files.read", "website.files.write", "website.logs.view", "website.backup.create")
+	mustHave(t, user, "website.files.read", "website.files.write", "website.files.delete", "website.ssl.view")
+	mustNotHave(t, user, "website.backup.create", "website.shell", "website.ssl.manage")
+	mustNotHave(t, visitor, "website.files.read", "website.files.write", "website.logs.view", "website.backup.create", "website.ssl.view")
 }
 
 func findRole(t *testing.T, key string) RoleDefinition {
